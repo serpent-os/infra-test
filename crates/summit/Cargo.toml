@@ -1,0 +1,14 @@
+[package]
+name = "summit"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+auth = { path = "../auth" }
+
+axum.workspace = true
+clap.workspace = true
+serde.workspace = true
+tonic.workspace = true
+tokio.workspace = true
+url.workspace = true

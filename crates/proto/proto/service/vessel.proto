@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package com.serpentos.service.vessel;
+
+import "collectable.proto";
+
+message ImportBinariesRequest {
+  uint64 report_id = 1;
+  repeated com.serpentos.collectable.Collectable collectables = 2;
+  optional string token = 3;
+}
+
+// TODO: Common Success type when body isn't needed?
+message ImportBinariesResponse {}
+
+service Vessel {
+  rpc ImportBinaries(ImportBinariesRequest) returns (ImportBinariesResponse) {}
+}

@@ -1,0 +1,17 @@
+[package]
+name = "proto"
+version = "0.1.0"
+edition.workspace = true
+
+[features]
+auth = ["service"]
+collectable = []
+service = []
+vessel = ["service", "collectable"]
+
+[dependencies]
+prost.workspace = true
+tonic.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true

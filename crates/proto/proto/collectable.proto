@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package com.serpentos.collectable;
+
+message Collectable {
+  CollectableType type = 1;
+  string uri = 2;
+  string sha256sum = 3;
+}
+
+enum CollectableType {
+  LOG = 0;
+  JSON_MANIFEST = 1;
+  BINARY_MANIFEST = 2;
+  PACKAGE = 3;
+}
