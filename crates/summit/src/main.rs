@@ -5,18 +5,15 @@ use axum::{
     Router,
 };
 use clap::Parser;
-use url::Url;
 
 mod api;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let Args { host, port, auth } = Args::parse();
-
-    let auth_client = auth::Client::connect(auth.to_string()).await?;
+    let Args { host, port } = Args::parse();
 
     let app = Router::new()
-        .nest("/api", api::router(auth_client))
+        .nest("/api", api::router())
         .layer(middleware::from_fn(log));
 
     let address = format!("{host}:{port}");
@@ -35,8 +32,6 @@ struct Args {
     host: String,
     #[arg(long, short, default_value = "5000")]
     port: u16,
-    #[arg(long, default_value = "http://127.0.0.1:5001")]
-    auth: Url,
 }
 
 async fn log(request: Request, next: Next) -> Response {

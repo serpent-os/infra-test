@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package endpoint;
+
+import "google/protobuf/empty.proto";
+
+message VisibleEndpoint {
+  string id = 1;
+  string host_address = 2;
+  string public_key = 3;
+  EndpointStatus status = 4;
+}
+
+enum EndpointStatus {
+  AWAITING_ACCEPTANCE = 0;
+  AWAITING_ENROLMENT = 1;
+  FAILED = 2;
+  OPERATIONAL = 3;
+  FORBIDDEN = 4;
+  UNREACHABLE = 5;
+}
+
+message Issuer {
+  string public_key = 1;
+  string url = 2;
+  EnrollmentRole role = 3;
+}
+
+enum EnrollmentRole {
+  BUILDER = 0;
+  REPOSITORY_MANAGER = 1;
+  HUB = 2;
+}
+
+message EnrollmentRequest {
+  Issuer issuer = 1;
+  string issue_token = 2;
+  EnrollmentRole role = 3;
+}
+
+message EnumerateResponse {
+  repeated VisibleEndpoint endpoints = 1;
+}
+
+message TokenResponse {
+  string token = 1;
+}
+
+service Endpoint {
+  rpc Enroll(EnrollmentRequest) returns (google.protobuf.Empty) {}
+  rpc Accept(EnrollmentRequest) returns (google.protobuf.Empty) {}
+  rpc Decline(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+  rpc Leave(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+  rpc Enumerate(google.protobuf.Empty) returns (EnumerateResponse) {}
+  rpc RefreshToken(google.protobuf.Empty) returns (TokenResponse) {}
+  rpc RefreshIssueToken(google.protobuf.Empty) returns (TokenResponse) {}
+}

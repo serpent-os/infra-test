@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package com.serpentos.collectable;
+package collectable;
 
 message Collectable {
   CollectableType type = 1;

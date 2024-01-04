@@ -12,6 +12,11 @@ message AuthenticateResponse {
   string token = 1;
 }
 
+message Request {
+  string auth = 1;
+  bytes message = 2;
+}
+
 service Auth {
   rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse) {}
 }

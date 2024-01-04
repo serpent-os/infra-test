@@ -1,9 +1,18 @@
-use axum::routing::post;
+use axum::{routing::get, Json};
+use serde::Serialize;
 
-pub mod account;
+pub fn router() -> axum::Router {
+    axum::Router::new().route(
+        "/status",
+        get(|| async {
+            #[derive(Serialize)]
+            struct Status {
+                status: String,
+            }
 
-pub fn router(auth_client: auth::Client) -> axum::Router {
-    axum::Router::new()
-        .route("/account/authenticate", post(account::authenticate))
-        .with_state(auth_client)
+            Json(Status {
+                status: "ok".into(),
+            })
+        }),
+    )
 }
