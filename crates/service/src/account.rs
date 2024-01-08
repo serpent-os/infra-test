@@ -1,17 +1,52 @@
+use std::fmt;
+
 use chrono::{DateTime, Utc};
-use derive_more::{Display, From, Into};
+use derive_more::From;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use strum::EnumString;
+use thiserror::Error;
+use uuid::Uuid;
 
 use crate::{crypto::EncodedPublicKey, database, Database};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, Into, Display)]
-pub struct Id(i64);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, FromRow)]
+#[serde(try_from = "&str", into = "String")]
+pub struct Id(Uuid);
+
+impl Id {
+    pub fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn uuid(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl<'a> TryFrom<&'a str> for Id {
+    type Error = uuid::Error;
+
+    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+        value.parse::<Uuid>().map(Id)
+    }
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl From<Id> for String {
+    fn from(id: Id) -> Self {
+        id.to_string()
+    }
+}
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Account {
-    #[sqlx(rename = "account_id", try_from = "i64")]
+    #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub id: Id,
     #[sqlx(rename = "type", try_from = "&'a str")]
     pub kind: Kind,
@@ -22,7 +57,7 @@ pub struct Account {
 }
 
 impl Account {
-    pub async fn get(db: &Database, id: Id) -> Result<Self, database::Error> {
+    pub async fn get(db: &Database, id: Id) -> Result<Self, Error> {
         let account: Account = sqlx::query_as(
             "
             SELECT
@@ -42,39 +77,37 @@ impl Account {
         Ok(account)
     }
 
-    pub async fn service(
-        db: &Database,
-        username: impl ToString,
-        email: impl ToString,
-        public_key: EncodedPublicKey,
-    ) -> Result<Id, database::Error> {
-        #[derive(FromRow)]
-        struct Row {
-            #[sqlx(rename = "account_id", try_from = "i64")]
-            id: Id,
-        }
-
-        let Row { id } = sqlx::query_as(
+    pub async fn save<'c>(
+        &self,
+        conn: impl sqlx::Executor<'c, Database = sqlx::Sqlite>,
+    ) -> Result<(), Error> {
+        sqlx::query(
             "
             INSERT INTO account
             (
+              account_id,
               type,
               username,
               email,
               public_key
             )
-            VALUES (?,?,?,?)
-            RETURNING (account_id);
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(account_id) DO UPDATE SET 
+              type=excluded.type,
+              username=excluded.username,
+              email=excluded.email,
+              public_key=excluded.public_key;
             ",
         )
-        .bind(Kind::Service.to_string())
-        .bind(username.to_string())
-        .bind(email.to_string())
-        .bind(public_key.to_string())
-        .fetch_one(&db.pool)
+        .bind(self.id.0)
+        .bind(self.kind.to_string())
+        .bind(&self.username)
+        .bind(&self.email)
+        .bind(self.public_key.to_string())
+        .execute(conn)
         .await?;
 
-        Ok(id)
+        Ok(())
     }
 }
 
@@ -100,7 +133,7 @@ impl BearerToken {
         id: Id,
         encoded: impl ToString,
         expiration: DateTime<Utc>,
-    ) -> Result<(), database::Error> {
+    ) -> Result<(), Error> {
         sqlx::query(
             "
             INSERT INTO bearer_token
@@ -121,7 +154,7 @@ impl BearerToken {
         Ok(())
     }
 
-    pub async fn get(db: &Database, id: Id) -> Result<BearerToken, database::Error> {
+    pub async fn get(db: &Database, id: Id) -> Result<BearerToken, Error> {
         let token: BearerToken = sqlx::query_as(
             "
             SELECT
@@ -136,5 +169,74 @@ impl BearerToken {
         .await?;
 
         Ok(token)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Admin {
+    pub username: String,
+    pub email: String,
+    pub public_key: EncodedPublicKey,
+}
+
+// Ensure only the provided admin account exists in the db.
+pub async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error> {
+    let account: Option<Id> = sqlx::query_as(
+        "
+        SELECT 
+          account_id
+        FROM account
+        WHERE 
+          type = 'admin'
+          AND username = ?
+          AND email = ?
+          AND public_key = ?;
+        ",
+    )
+    .bind(&admin.username)
+    .bind(&admin.email)
+    .bind(admin.public_key.to_string())
+    .fetch_optional(&db.pool)
+    .await?;
+
+    if account.is_some() {
+        return Ok(());
+    }
+
+    let mut transaction = db.transaction().await?;
+
+    sqlx::query(
+        "
+        DELETE FROM account
+        WHERE type = 'admin';
+        ",
+    )
+    .execute(transaction.as_mut())
+    .await?;
+
+    Account {
+        id: Id::generate(),
+        kind: Kind::Admin,
+        username: admin.username.clone(),
+        email: admin.email.clone(),
+        public_key: admin.public_key.clone(),
+    }
+    .save(transaction.as_mut())
+    .await?;
+
+    transaction.commit().await?;
+
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("database: {0}")]
+    Database(#[from] database::Error),
+}
+
+impl From<sqlx::Error> for Error {
+    fn from(error: sqlx::Error) -> Self {
+        Error::Database(database::Error::from(error))
     }
 }

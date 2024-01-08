@@ -1,6 +1,9 @@
+use std::fmt;
+
 use base64::Engine;
-use derive_more::From;
-use ed25519_dalek::{pkcs8::EncodePrivateKey, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH};
+use derive_more::{Display, From};
+use ed25519_dalek::{pkcs8::EncodePrivateKey, SECRET_KEY_LENGTH};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -30,14 +33,11 @@ impl KeyPair {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct PublicKey(ed25519_dalek::VerifyingKey);
 
 impl PublicKey {
-    pub fn to_bytes(self) -> [u8; PUBLIC_KEY_LENGTH] {
-        self.0.to_bytes()
-    }
-
     pub fn encode(&self) -> EncodedPublicKey {
         EncodedPublicKey(base64::prelude::BASE64_URL_SAFE_NO_PAD.encode(self.0.as_bytes()))
     }
@@ -49,7 +49,27 @@ impl AsRef<[u8]> for PublicKey {
     }
 }
 
-#[derive(Debug, Clone, From)]
+impl TryFrom<String> for PublicKey {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        EncodedPublicKey::decode(value.as_str())
+    }
+}
+
+impl From<PublicKey> for String {
+    fn from(value: PublicKey) -> Self {
+        value.to_string()
+    }
+}
+
+impl fmt::Display for PublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.encode().fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, From, Display, Serialize, Deserialize)]
 pub struct EncodedPublicKey(String);
 
 impl EncodedPublicKey {
@@ -60,12 +80,6 @@ impl EncodedPublicKey {
             .unwrap_or_default();
 
         Ok(PublicKey(ed25519_dalek::VerifyingKey::from_bytes(&bytes)?))
-    }
-}
-
-impl ToString for EncodedPublicKey {
-    fn to_string(&self) -> String {
-        self.0.clone()
     }
 }
 

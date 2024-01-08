@@ -1,5 +1,5 @@
-pub use authentication::Authentication;
-pub use extract_token::ExtractToken;
+pub use auth::{auth, Auth};
+pub use log::Log;
 
-mod authentication;
-mod extract_token;
+pub mod auth;
+pub mod log;

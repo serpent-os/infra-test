@@ -12,7 +12,9 @@ derive_more.workspace = true
 ed25519-dalek.workspace = true
 futures.workspace = true
 http.workspace = true
+http-serde.workspace = true
 jsonwebtoken.workspace = true
+log.workspace = true
 prost.workspace = true
 rand.workspace = true
 serde.workspace = true
@@ -22,7 +24,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tonic.workspace = true
 tower.workspace = true
-url.workspace = true
+uuid.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true

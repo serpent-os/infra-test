@@ -1,3 +1,4 @@
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -14,12 +15,19 @@ pub struct Token {
 }
 
 impl Token {
+    pub fn new(payload: Payload) -> Self {
+        Self {
+            header: Header::new(jsonwebtoken::Algorithm::EdDSA),
+            payload,
+        }
+    }
+
     /// Verify and return a decoded token
     pub fn verify(
         token: &str,
         public_key: &PublicKey,
         validation: &Validation,
-    ) -> Result<Self, Error> {
+    ) -> Result<VerifiedToken, Error> {
         let decoded = jsonwebtoken::decode::<Payload>(
             token,
             // This actually takes the compressed bytes and not
@@ -30,9 +38,12 @@ impl Token {
         )
         .map_err(Error::DecodeToken)?;
 
-        Ok(Self {
-            header: decoded.header,
-            payload: decoded.claims,
+        Ok(VerifiedToken {
+            encoded: token.to_string(),
+            decoded: Token {
+                header: decoded.header,
+                payload: decoded.claims,
+            },
         })
     }
 
@@ -54,6 +65,20 @@ impl Token {
             .as_secs();
 
         self.payload.exp as u64 <= now
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedToken {
+    pub encoded: String,
+    pub decoded: Token,
+}
+
+impl VerifiedToken {
+    pub fn expires(&self) -> DateTime<Utc> {
+        chrono::NaiveDateTime::from_timestamp_opt(self.decoded.payload.exp, 0)
+            .map(|dt| dt.and_utc())
+            .unwrap_or_else(|| NaiveDateTime::UNIX_EPOCH.and_utc())
     }
 }
 
@@ -108,11 +133,11 @@ impl Validation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Payload {
     // Standard
-    aud: String,
-    exp: i64,
-    iat: i64,
-    iss: String,
-    sub: String,
+    pub aud: String,
+    pub exp: i64,
+    pub iat: i64,
+    pub iss: String,
+    pub sub: String,
     // Internal
     #[serde(rename = "pur")]
     pub purpose: Purpose,
@@ -125,8 +150,17 @@ pub struct Payload {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Purpose {
-    Authorize,
-    Authenticate,
+    Authorization,
+    Authentication,
+}
+
+impl Purpose {
+    pub fn duration(&self) -> Duration {
+        match self {
+            Purpose::Authorization => Duration::days(7),
+            Purpose::Authentication => Duration::hours(1),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -144,6 +178,7 @@ mod test {
     // use base64::Engine;
     use chrono::{Duration, Utc};
     use jsonwebtoken::Algorithm;
+    use uuid::Uuid;
 
     use super::*;
 
@@ -162,16 +197,16 @@ mod test {
                 iat: now.timestamp(),
                 iss: "test".into(),
                 sub: "test".into(),
-                purpose: Purpose::Authorize,
-                account_id: 0.into(),
+                purpose: Purpose::Authorization,
+                account_id: Uuid::new_v4().into(),
                 account_type: account::Kind::Admin,
             },
         };
 
         // Round trip
         let encoded = token.sign(&keypair).unwrap();
-        let decoded = Token::verify(&encoded, &keypair.public_key(), &Validation::new()).unwrap();
+        let verified = Token::verify(&encoded, &keypair.public_key(), &Validation::new()).unwrap();
 
-        assert_eq!(token, decoded);
+        assert_eq!(token, verified.decoded);
     }
 }

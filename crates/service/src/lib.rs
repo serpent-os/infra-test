@@ -4,8 +4,9 @@ pub use self::endpoint::Endpoint;
 pub use self::token::Token;
 
 pub mod account;
-mod crypto;
+pub mod crypto;
 pub mod database;
 pub mod endpoint;
 pub mod middleware;
+pub mod sync;
 pub mod token;

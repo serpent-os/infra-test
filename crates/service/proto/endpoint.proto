@@ -4,8 +4,12 @@ package endpoint;
 
 import "google/protobuf/empty.proto";
 
-message VisibleEndpoint {
+message EndpointId {
   string id = 1;
+}
+
+message Endpoint {
+  EndpointId id = 1;
   string host_address = 2;
   string public_key = 3;
   EndpointStatus status = 4;
@@ -13,7 +17,6 @@ message VisibleEndpoint {
 
 enum EndpointStatus {
   AWAITING_ACCEPTANCE = 0;
-  AWAITING_ENROLMENT = 1;
   FAILED = 2;
   OPERATIONAL = 3;
   FORBIDDEN = 4;
@@ -24,6 +27,9 @@ message Issuer {
   string public_key = 1;
   string url = 2;
   EnrollmentRole role = 3;
+  string admin_name = 4;
+  string admin_email = 5;
+  string description = 6;
 }
 
 enum EnrollmentRole {
@@ -38,20 +44,27 @@ message EnrollmentRequest {
   EnrollmentRole role = 3;
 }
 
-message EnumerateResponse {
-  repeated VisibleEndpoint endpoints = 1;
+message EndpointArray {
+  repeated Endpoint endpoints = 1;
 }
 
 message TokenResponse {
   string token = 1;
 }
 
-service Endpoint {
+service EndpointService {
   rpc Enroll(EnrollmentRequest) returns (google.protobuf.Empty) {}
   rpc Accept(EnrollmentRequest) returns (google.protobuf.Empty) {}
   rpc Decline(google.protobuf.Empty) returns (google.protobuf.Empty) {}
   rpc Leave(google.protobuf.Empty) returns (google.protobuf.Empty) {}
-  rpc Enumerate(google.protobuf.Empty) returns (EnumerateResponse) {}
+
   rpc RefreshToken(google.protobuf.Empty) returns (TokenResponse) {}
   rpc RefreshIssueToken(google.protobuf.Empty) returns (TokenResponse) {}
+
+  rpc Visible(google.protobuf.Empty) returns (EndpointArray) {}
+
+  // Admin functions
+  rpc Pending(google.protobuf.Empty) returns (EndpointArray) {}
+  rpc AcceptPending(EndpointId) returns (google.protobuf.Empty) {}
+  rpc DeclinePending(EndpointId) returns (google.protobuf.Empty) {}
 }

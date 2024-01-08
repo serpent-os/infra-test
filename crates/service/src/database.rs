@@ -34,48 +34,8 @@ impl Database {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("sqlx")]
+    #[error("sqlx: {0}")]
     Sqlx(#[from] sqlx::Error),
-    #[error("sqlx migration")]
+    #[error("sqlx migration: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
 }
-
-// /// Decode from a database type using [`Encoding::decode`]
-// #[derive(Debug, Clone, Copy)]
-// pub struct Decoder<T>(pub T);
-
-// /// A trait to define an encoding between a sql type and rust type
-// pub trait Encoding<'a>: Sized {
-//     type Encoded: ToOwned;
-//     type Error;
-
-//     fn decode(encoded: Self::Encoded) -> Result<Self, Self::Error>;
-//     fn encode(&'a self) -> Self::Encoded;
-// }
-
-// impl<'r, T, U, E> sqlx::Decode<'r, Sqlite> for Decoder<T>
-// where
-//     T: Encoding<'r, Encoded = U, Error = E>,
-//     U: sqlx::Decode<'r, Sqlite> + ToOwned,
-//     E: std::error::Error + Send + Sync + 'static,
-// {
-//     fn decode(
-//         value: <Sqlite as sqlx::database::HasValueRef<'r>>::ValueRef,
-//     ) -> Result<Self, sqlx::error::BoxDynError> {
-//         Ok(T::decode(U::decode(value)?).map(Decoder)?)
-//     }
-// }
-
-// impl<T, U, E> Type<Sqlite> for Decoder<T>
-// where
-//     T: Encoding<'static, Encoded = U, Error = E>,
-//     U: ToOwned + Type<Sqlite>,
-// {
-//     fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
-//         U::type_info()
-//     }
-
-//     fn compatible(ty: &<Sqlite as sqlx::Database>::TypeInfo) -> bool {
-//         U::compatible(ty)
-//     }
-// }
