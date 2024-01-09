@@ -1,0 +1,9 @@
+description = "Summit (test)"
+host_address = "http://127.0.0.1:5001"
+log_level = "summit=debug,service=debug,info"
+
+[admin]
+username = "admin"
+email = "admin@serpentos.com"
+public_key = ""
+

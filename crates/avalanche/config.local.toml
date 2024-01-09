@@ -1,0 +1,17 @@
+description = "Avalanche (test)"
+host_address = "http://127.0.0.1:5002"
+log_level = "avalanche=debug,service=debug,info"
+
+[admin]
+username = "admin"
+email = "admin@serpentos.com"
+public_key = ""
+
+[summit]
+host_address = "http://127.0.0.1:5001"
+public_key = ""
+description = "Avalanche (test)"
+admin_name = "admin"
+admin_email = "admin@serpentos.com"
+role = "hub"
+
