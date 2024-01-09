@@ -89,7 +89,7 @@ where
     pub async fn start(self, bind: impl Into<SocketAddr>) -> Result<(), Error> {
         account::sync_admin(&self.state.db, self.config.admin.clone()).await?;
 
-        self.router.serve(bind).await?;
+        self.router.serve(bind.into()).await?;
 
         Ok(())
     }

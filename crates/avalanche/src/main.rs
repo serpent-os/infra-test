@@ -5,7 +5,7 @@ use log::{error, info};
 use serde::Deserialize;
 use service::{
     endpoint::{enrollment, Enrollment, Role},
-    logging, Server, State,
+    logging, State,
 };
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;

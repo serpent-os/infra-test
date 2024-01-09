@@ -4,6 +4,7 @@ use std::str::FromStr;
 use derive_more::From;
 use http::Uri;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use uuid::Uuid;
 
 pub use self::enrollment::Enrollment;
@@ -51,9 +52,10 @@ impl From<Id> for String {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Endpoint {
     pub id: Id,
+    #[serde(with = "http_serde::uri")]
     pub host_address: Uri,
     pub status: Status,
     pub error: Option<String>,
@@ -119,6 +121,79 @@ impl Endpoint {
         Ok(())
     }
 
+    pub async fn list(db: &Database) -> Result<Vec<Endpoint>, database::Error> {
+        #[derive(Debug, Clone, FromRow)]
+        struct Row {
+            #[sqlx(rename = "endpoint_id", try_from = "Uuid")]
+            id: Id,
+            #[sqlx(try_from = "&'a str")]
+            host_address: Uri,
+            #[sqlx(try_from = "&'a str")]
+            status: Status,
+            error: Option<String>,
+            bearer_token: Option<String>,
+            api_token: Option<String>,
+            #[sqlx(rename = "account_id", try_from = "Uuid")]
+            account: account::Id,
+            admin_email: Option<String>,
+            admin_name: Option<String>,
+            description: Option<String>,
+            work_status: Option<builder::WorkStatus>,
+        }
+
+        let endpoints: Vec<Row> = sqlx::query_as(
+            "
+            SELECT
+              endpoint_id,
+              host_address,
+              status,
+              error,
+              bearer_token,
+              api_token,
+              account_id,
+              admin_email,
+              admin_name,
+              description,
+              work_status
+            FROM endpoint;
+            ",
+        )
+        .fetch_all(&db.pool)
+        .await?;
+
+        Ok(endpoints
+            .into_iter()
+            .map(|row| {
+                // TODO: This is broke, we need a field which
+                // defines the extension type
+                let extension = row
+                    .admin_email
+                    .zip(row.admin_name)
+                    .zip(row.description)
+                    .zip(row.work_status)
+                    .map(|(((admin_email, admin_name), description), work_status)| {
+                        Extension::Builder(builder::Extension {
+                            admin_email,
+                            admin_name,
+                            description,
+                            work_status,
+                        })
+                    });
+
+                Endpoint {
+                    id: row.id,
+                    host_address: row.host_address,
+                    status: row.status,
+                    error: row.error,
+                    bearer_token: row.bearer_token,
+                    api_token: row.api_token,
+                    account: row.account,
+                    extension,
+                }
+            })
+            .collect())
+    }
+
     pub fn builder(&self) -> Option<&builder::Extension> {
         if let Some(Extension::Builder(ext)) = &self.extension {
             Some(ext)
@@ -128,7 +203,8 @@ impl Endpoint {
     }
 }
 
-#[derive(Debug, Clone, Copy, strum::Display)]
+#[derive(Debug, Clone, Copy, strum::Display, strum::EnumString, Serialize)]
+#[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum Status {
     AwaitingAcceptance,
@@ -177,13 +253,17 @@ impl From<Role> for proto::EnrollmentRole {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Extension {
     Builder(builder::Extension),
 }
 
 pub mod builder {
-    #[derive(Debug, Clone)]
+    use serde::Serialize;
+    use sqlx::{error::BoxDynError, sqlite::SqliteValueRef, Sqlite};
+
+    #[derive(Debug, Clone, Serialize)]
     pub struct Extension {
         pub admin_email: String,
         pub admin_name: String,
@@ -191,11 +271,28 @@ pub mod builder {
         pub work_status: WorkStatus,
     }
 
-    #[derive(Debug, Clone, Copy, strum::Display)]
+    #[derive(Debug, Clone, Copy, strum::Display, strum::EnumString, Serialize)]
+    #[serde(rename_all = "kebab-case")]
     #[strum(serialize_all = "kebab-case")]
     pub enum WorkStatus {
         Idle,
         Running,
+    }
+
+    impl<'a> sqlx::Decode<'a, Sqlite> for WorkStatus {
+        fn decode(value: SqliteValueRef<'a>) -> Result<Self, BoxDynError> {
+            Ok(<&str as sqlx::Decode<Sqlite>>::decode(value)?.parse()?)
+        }
+    }
+
+    impl sqlx::Type<Sqlite> for WorkStatus {
+        fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
+            <&str as sqlx::Type<Sqlite>>::type_info()
+        }
+
+        fn compatible(ty: &<Sqlite as sqlx::Database>::TypeInfo) -> bool {
+            <&str as sqlx::Type<Sqlite>>::compatible(ty)
+        }
     }
 }
 

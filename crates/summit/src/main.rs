@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
 
     let state = State::load(root).await?;
 
-    let mut web = web::serve((host, web_port)).await?.fuse();
+    let mut web = web::serve((host, web_port), state.clone()).await?.fuse();
     let mut grpc = service::start((host, grpc_port), Role::Hub, config, state)
         .boxed()
         .fuse();
