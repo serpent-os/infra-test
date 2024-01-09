@@ -179,8 +179,8 @@ pub struct Admin {
     pub public_key: EncodedPublicKey,
 }
 
-// Ensure only the provided admin account exists in the db.
-pub async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error> {
+/// Ensure only the provided admin account exists in the db.
+pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error> {
     let account: Option<Id> = sqlx::query_as(
         "
         SELECT 

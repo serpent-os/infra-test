@@ -19,9 +19,9 @@ pub struct State {
 }
 
 impl State {
-    pub async fn load(dir: impl AsRef<Path>) -> Result<Self, Error> {
-        let db_path = dir.as_ref().join("service.db");
-        let key_path = dir.as_ref().join(".privkey");
+    pub async fn load(root: impl AsRef<Path>) -> Result<Self, Error> {
+        let db_path = root.as_ref().join("service.db");
+        let key_path = root.as_ref().join(".privkey");
 
         let db = Database::new(&db_path).await?;
         debug!("database {db_path:?} opened");
