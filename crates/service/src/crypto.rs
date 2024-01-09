@@ -20,8 +20,14 @@ impl KeyPair {
         self.0.to_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8; SECRET_KEY_LENGTH]) -> Self {
-        Self(ed25519_dalek::SigningKey::from_bytes(bytes))
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self(ed25519_dalek::SigningKey::from_bytes(
+            bytes
+                .try_into()
+                .map_err(|_| Error::InvalidPrivateKeyLength {
+                    actual: bytes.len(),
+                })?,
+        )))
     }
 
     pub fn public_key(&self) -> PublicKey {
@@ -93,4 +99,9 @@ pub enum Error {
     EncodeDerPublicKey(#[from] ed25519_dalek::pkcs8::spki::Error),
     #[error("encode der private key: {0}")]
     EncodeDerPrivateKey(#[from] ed25519_dalek::pkcs8::Error),
+    #[error(
+        "invalid private key length, expected {} got {actual}",
+        SECRET_KEY_LENGTH
+    )]
+    InvalidPrivateKeyLength { actual: usize },
 }

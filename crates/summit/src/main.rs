@@ -1,53 +1,45 @@
-use std::future::IntoFuture;
 use std::{fs, path::PathBuf};
 
-use axum::{extract::Request, middleware::Next, response::Response, Router};
 use clap::Parser;
 use futures::{select, FutureExt};
-use log::{debug, info};
+use log::info;
 use serde::Deserialize;
-use service::endpoint::enrollment::PendingEnrollment;
-use service::{account, middleware, token, Database};
+use service::endpoint;
+use service::{account, middleware, token, State};
 use service::{account::Admin, endpoint::enrollment};
-use service::{crypto::KeyPair, endpoint};
 
-mod api;
+mod web;
+
+pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     let Args {
         host,
         web_port,
         grpc_port,
-        db: db_path,
         config,
+        root,
     } = Args::parse();
 
-    let config = Config::load(&config)?;
+    let config = Config::load(&config.unwrap_or_else(|| root.join("config.toml")))?;
 
-    env_logger::init_from_env(
+    env_logger::Builder::from_env(
         env_logger::Env::new().default_filter_or(config.log_level.as_deref().unwrap_or("info")),
-    );
-
-    let app = Router::new()
-        .nest("/api", api::router())
-        .layer(axum::middleware::from_fn(log));
+    )
+    .format_module_path(false)
+    .init();
 
     let web_address = format!("{host}:{web_port}");
     let grpc_address = format!("{host}:{grpc_port}");
 
-    // TODO: Persist
-    let key_pair = KeyPair::generate();
-    debug!("keypair generated: {}", key_pair.public_key().encode());
-    let db = Database::new(&db_path).await?;
-    debug!("database {db_path:?} opened");
-    let pending_enrollment = PendingEnrollment::default();
+    let state = State::load(root).await?;
 
-    account::sync_admin(&db, config.admin.clone()).await?;
+    account::sync_admin(&state.db, config.admin.clone()).await?;
 
     let endpoint_service = endpoint::Server::new(endpoint::Service {
         issuer: enrollment::Issuer {
-            key_pair: key_pair.clone(),
+            key_pair: state.key_pair.clone(),
             // TODO: Domain name when deployed
             host_address: format!("http://{web_address}").parse()?,
             role: endpoint::Role::Hub,
@@ -60,14 +52,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut grpc = tonic::transport::Server::builder()
         .layer(tonic::service::interceptor(
             move |mut req: tonic::Request<()>| {
-                req.extensions_mut().insert(db.clone());
-                req.extensions_mut().insert(pending_enrollment.clone());
+                req.extensions_mut().insert(state.db.clone());
+                req.extensions_mut()
+                    .insert(state.pending_enrollment.clone());
                 Ok(req)
             },
         ))
         .layer(middleware::Log)
         .layer(middleware::Auth {
-            pub_key: key_pair.public_key(),
+            pub_key: state.key_pair.public_key(),
             validation: token::Validation::new().iss(endpoint::Role::Hub.service_name()),
         })
         .add_service(endpoint_service)
@@ -75,8 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .boxed()
         .fuse();
 
-    let listener = tokio::net::TcpListener::bind(&web_address).await?;
-    let mut web = axum::serve(listener, app).into_future().boxed().fuse();
+    let mut web = web::serve(&web_address).await?.fuse();
 
     info!("summit listening on web: {web_address}, grpc: {grpc_address}");
 
@@ -96,10 +88,10 @@ struct Args {
     web_port: u16,
     #[arg(long, default_value = "5001")]
     grpc_port: u16,
-    #[arg(long, default_value = "./summit.db")]
-    db: PathBuf,
-    #[arg(long, short, default_value = "./summit.toml")]
-    config: PathBuf,
+    #[arg(long, short)]
+    config: Option<PathBuf>,
+    #[arg(long, short, default_value = ".")]
+    root: PathBuf,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -110,21 +102,9 @@ struct Config {
 }
 
 impl Config {
-    pub fn load(path: &PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(path: &PathBuf) -> Result<Self> {
         let content = fs::read_to_string(path)?;
         let config = toml::from_str(&content)?;
         Ok(config)
     }
-}
-
-async fn log(request: Request, next: Next) -> Response {
-    let path = request.uri().path().to_string();
-
-    debug!("Received request for {path}");
-
-    let response = next.run(request).await;
-
-    debug!("Returning response for {path}: {}", response.status());
-
-    response
 }

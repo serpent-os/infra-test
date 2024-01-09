@@ -1,5 +1,3 @@
 /target
 
-avalanche.toml
-summit.toml
-*.db
+.root
