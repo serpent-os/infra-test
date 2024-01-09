@@ -18,6 +18,15 @@ use crate::{
     middleware, token, Config, State,
 };
 
+pub async fn start<T>(
+    bind: impl Into<SocketAddr>,
+    role: Role,
+    config: Config<T>,
+    state: State,
+) -> Result<(), Error> {
+    Server::new(role, config, state).start(bind).await
+}
+
 pub type DefaultMiddleware = Stack<
     middleware::Auth,
     Stack<middleware::Log, Stack<InterceptorLayer<middleware::Extensions>, Identity>>,
@@ -77,7 +86,7 @@ where
         }
     }
 
-    pub async fn start(self, bind: SocketAddr) -> Result<(), Error> {
+    pub async fn start(self, bind: impl Into<SocketAddr>) -> Result<(), Error> {
         account::sync_admin(&self.state.db, self.config.admin.clone()).await?;
 
         self.router.serve(bind).await?;

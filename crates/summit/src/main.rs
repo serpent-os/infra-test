@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use futures::{select, FutureExt};
 use log::info;
-use service::{endpoint::Role, logging, Server, State};
+use service::{endpoint::Role, logging, State};
 
 mod web;
 
@@ -28,8 +28,7 @@ async fn main() -> Result<()> {
     let state = State::load(root).await?;
 
     let mut web = web::serve((host, web_port)).await?.fuse();
-    let mut grpc = Server::new(Role::Hub, config, state)
-        .start((host, grpc_port).into())
+    let mut grpc = service::start((host, grpc_port), Role::Hub, config, state)
         .boxed()
         .fuse();
 

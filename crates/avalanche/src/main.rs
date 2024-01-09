@@ -8,7 +8,7 @@ use service::{
     logging, Server, State,
 };
 
-pub type Result<T> = color_eyre::eyre::Result<T>;
+pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config<AvalancheConfig>;
 
 #[tokio::main]
@@ -30,9 +30,7 @@ async fn main() -> Result<()> {
 
     info!("avalanche listening on {host}:{port}");
 
-    Server::new(Role::Builder, config, state)
-        .start((host, port).into())
-        .await?;
+    service::start((host, port), Role::Builder, config, state).await?;
 
     Ok(())
 }

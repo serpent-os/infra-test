@@ -2,7 +2,7 @@ pub use self::account::Account;
 pub use self::config::Config;
 pub use self::database::Database;
 pub use self::endpoint::Endpoint;
-pub use self::server::Server;
+pub use self::server::{start, Server};
 pub use self::state::State;
 pub use self::token::Token;
 
