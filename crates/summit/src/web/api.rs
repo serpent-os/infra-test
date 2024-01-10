@@ -1,7 +1,8 @@
-use axum::{extract, routing::get, Json};
-use log::error;
+use axum::{routing::get, Json};
 use serde::Serialize;
-use service::{Endpoint, State};
+use service::State;
+
+mod endpoints;
 
 pub fn router() -> axum::Router<State> {
     axum::Router::new()
@@ -18,20 +19,5 @@ pub fn router() -> axum::Router<State> {
                 })
             }),
         )
-        .route(
-            "/endpoints",
-            get(|extract::State(state): extract::State<State>| async move {
-                #[derive(Serialize)]
-                struct Endpoints {
-                    endpoints: Vec<Endpoint>,
-                }
-
-                let endpoints = Endpoint::list(&state.db)
-                    .await
-                    .map_err(|e| error!("List endpoint failed: {e}"))
-                    .unwrap_or_default();
-
-                Json(Endpoints { endpoints })
-            }),
-        )
+        .route("/endpoints", get(endpoints::get))
 }
