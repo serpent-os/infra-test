@@ -23,9 +23,6 @@ CREATE TABLE IF NOT EXISTS endpoint (
     bearer_token TEXT,
     api_token TEXT,
     account_id TEXT NOT NULL UNIQUE, 
-    admin_email TEXT,
-    admin_name TEXT,
-    description TEXT,
-    work_status TEXT,
+    extension TEXT,
     FOREIGN KEY(account_id) REFERENCES account(account_id) ON DELETE CASCADE
 );
