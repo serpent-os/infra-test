@@ -54,12 +54,12 @@ impl State {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("load database: {0}")]
+    #[error("load database")]
     LoadDatabase(#[from] database::Error),
-    #[error("save private key: {0}")]
+    #[error("save private key")]
     SavePrivateKey(#[source] io::Error),
-    #[error("load private key: {0}")]
+    #[error("load private key")]
     LoadPrivateKey(#[source] io::Error),
-    #[error("decode private key: {0}")]
+    #[error("decode private key")]
     DecodePrivateKey(#[source] crypto::Error),
 }

@@ -17,7 +17,7 @@ use crate::{
     account,
     crypto::EncodedPublicKey,
     endpoint::{self, enrollment::PendingEnrollment, Enrollment},
-    middleware::{auth, log::log_error},
+    middleware::{auth, log::log_handler},
     token::{self, VerifiedToken},
     Database, Token,
 };
@@ -278,12 +278,7 @@ impl EndpointService for Service {
         auth(&request, auth::Flags::NO_AUTH)?;
 
         if matches!(self.role(), EnrollmentRole::Hub) {
-            log_error(
-                self.enroll(request)
-                    .await
-                    .map(tonic::Response::new)
-                    .map_err(tonic::Status::from),
-            )
+            log_handler(self.enroll(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
                 "not supported by {:?} role",
@@ -299,12 +294,7 @@ impl EndpointService for Service {
         auth(&request, SERVICE_FLAGS)?;
 
         if !matches!(self.role(), EnrollmentRole::Hub) {
-            log_error(
-                self.accept(request)
-                    .await
-                    .map(tonic::Response::new)
-                    .map_err(tonic::Status::from),
-            )
+            log_handler(self.accept(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
                 "not supported by {:?} role",
@@ -319,12 +309,7 @@ impl EndpointService for Service {
         auth(&request, SERVICE_FLAGS)?;
 
         if !matches!(self.role(), EnrollmentRole::Hub) {
-            log_error(
-                self.decline(request)
-                    .await
-                    .map(tonic::Response::new)
-                    .map_err(tonic::Status::from),
-            )
+            log_handler(self.decline(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
                 "not supported by {:?} role",
@@ -387,12 +372,7 @@ impl EndpointService for Service {
         // auth(&request, ADMIN_FLAGS)?;
 
         if matches!(self.role(), EnrollmentRole::Hub) {
-            log_error(
-                self.pending(request)
-                    .await
-                    .map(tonic::Response::new)
-                    .map_err(tonic::Status::from),
-            )
+            log_handler(self.pending(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
                 "not supported by {:?} role",
@@ -409,12 +389,7 @@ impl EndpointService for Service {
         // auth(&request, ADMIN_FLAGS)?;
 
         if matches!(self.role(), EnrollmentRole::Hub) {
-            log_error(
-                self.accept_pending(request)
-                    .await
-                    .map(tonic::Response::new)
-                    .map_err(tonic::Status::from),
-            )
+            log_handler(self.accept_pending(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
                 "not supported by {:?} role",
@@ -430,12 +405,7 @@ impl EndpointService for Service {
         auth(&request, ADMIN_FLAGS)?;
 
         if matches!(self.role(), EnrollmentRole::Hub) {
-            log_error(
-                self.decline_pending(request)
-                    .await
-                    .map(tonic::Response::new)
-                    .map_err(tonic::Status::from),
-            )
+            log_handler(self.decline_pending(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
                 "not supported by {:?} role",
@@ -481,13 +451,13 @@ pub enum Error {
     },
     #[error("Pending enrollment missing for endpoint {0}")]
     MissingPendingEnrollment(endpoint::Id),
-    #[error("invalid uri: {0}")]
+    #[error("invalid uri")]
     InvalidUrl(#[from] http::uri::InvalidUri),
-    #[error("invalid endpoint: {0}")]
+    #[error("invalid endpoint")]
     InvalidEndpoint(#[source] uuid::Error),
-    #[error("verify token: {0}")]
+    #[error("verify token")]
     VerifyToken(#[source] token::Error),
-    #[error("enrollment: {0}")]
+    #[error("enrollment")]
     Enrollment(#[from] enrollment::Error),
 }
 

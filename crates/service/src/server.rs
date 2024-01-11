@@ -97,7 +97,7 @@ where
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("sync admin account: {0}")]
+    #[error("sync admin account")]
     SyncAdmin(#[from] account::Error),
     #[error(transparent)]
     Serve(#[from] tonic::transport::Error),

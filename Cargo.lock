@@ -1911,6 +1911,7 @@ dependencies = [
  "futures",
  "http 0.2.11",
  "http-serde",
+ "itertools 0.12.0",
  "jsonwebtoken",
  "log",
  "prost",

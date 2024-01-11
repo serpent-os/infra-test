@@ -165,9 +165,9 @@ impl Purpose {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("decode token: {0}")]
+    #[error("decode token")]
     DecodeToken(#[source] jsonwebtoken::errors::Error),
-    #[error("sign token: {0}")]
+    #[error("sign token")]
     SignToken(#[source] jsonwebtoken::errors::Error),
     #[error(transparent)]
     Crypto(#[from] crypto::Error),

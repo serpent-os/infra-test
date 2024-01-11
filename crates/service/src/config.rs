@@ -47,8 +47,8 @@ impl<T> Config<T> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("load config: {0}")]
+    #[error("load config")]
     Load(#[from] io::Error),
-    #[error("decode config: {0}")]
+    #[error("decode config")]
     Decode(#[from] toml::de::Error),
 }

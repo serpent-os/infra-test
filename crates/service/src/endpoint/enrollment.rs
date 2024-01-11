@@ -304,23 +304,23 @@ fn create_bearer_token(
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("grpc request failed: {0}")]
+    #[error("grpc request failed")]
     Grpc(#[from] tonic::Status),
-    #[error("create service account: {0}")]
+    #[error("create service account")]
     CreateServiceAccount(#[source] account::Error),
-    #[error("create endpoint: {0}")]
+    #[error("create endpoint")]
     CreateEndpoint(#[source] database::Error),
-    #[error("set bearer token: {0}")]
+    #[error("set bearer token")]
     SetBearerToken(#[source] account::Error),
-    #[error("update endpoint status: {0}")]
+    #[error("update endpoint status")]
     UpdateEndpointStatus(#[source] database::Error),
     #[error("public key mismatch, expected {expected} got {actual}")]
     PublicKeyMismatch {
         expected: EncodedPublicKey,
         actual: EncodedPublicKey,
     },
-    #[error("grpc transport: {0}")]
+    #[error("grpc transport")]
     Transport(#[from] tonic::transport::Error),
-    #[error("sign token: {0}")]
+    #[error("sign token")]
     SignToken(#[from] token::Error),
 }

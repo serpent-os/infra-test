@@ -91,13 +91,13 @@ impl EncodedPublicKey {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("base64 decode: {0}")]
+    #[error("base64 decode")]
     Base64Decode(#[from] base64::DecodeError),
-    #[error("decode public key: {0}")]
+    #[error("decode public key")]
     DecodePublicKey(#[from] ed25519_dalek::SignatureError),
-    #[error("encode der public key: {0}")]
+    #[error("encode der public key")]
     EncodeDerPublicKey(#[from] ed25519_dalek::pkcs8::spki::Error),
-    #[error("encode der private key: {0}")]
+    #[error("encode der private key")]
     EncodeDerPrivateKey(#[from] ed25519_dalek::pkcs8::Error),
     #[error(
         "invalid private key length, expected {} got {actual}",

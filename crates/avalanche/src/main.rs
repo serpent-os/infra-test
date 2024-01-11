@@ -56,8 +56,6 @@ pub struct AvalancheConfig {
 
 async fn log_error<T>(result: Result<T>) {
     if let Err(e) = result {
-        // TODO: Remove {0} from service errors so we don't duplicate
-        // the error chain since # alternate format prints the causes for us
         error!("{e:#}");
     }
 }

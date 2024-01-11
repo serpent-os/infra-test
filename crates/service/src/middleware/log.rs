@@ -1,20 +1,28 @@
-use std::error::Error;
-
 use futures::{future::BoxFuture, FutureExt};
+use itertools::Itertools;
 use log::{debug, error};
 use tonic::{body::BoxBody, transport::Body};
 use tower::BoxError;
 
-pub fn log_error<T>(
-    result: Result<tonic::Response<T>, tonic::Status>,
-) -> Result<tonic::Response<T>, tonic::Status> {
+pub fn log_handler<T, E>(result: Result<T, E>) -> Result<tonic::Response<T>, tonic::Status>
+where
+    E: Into<tonic::Status> + std::error::Error,
+{
     match result {
-        Ok(resp) => Ok(resp),
+        Ok(data) => Ok(tonic::Response::new(data)),
         Err(err) => {
-            if let Some(source) = err.source() {
-                error!("Handler error, {source}");
+            // Log the chain of errors below the tonic::Status
+            // Our handler errors should convert to tonic::Status
+            // and set themselves as the source.
+            let mut chain = vec![err.to_string()];
+            let mut source = err.source();
+            while let Some(cause) = source {
+                chain.push(cause.to_string());
+                source = cause.source();
             }
-            Err(err)
+            error!("Handler error: {}", chain.into_iter().join(": "));
+
+            Err(err.into())
         }
     }
 }

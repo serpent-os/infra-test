@@ -231,7 +231,7 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("database: {0}")]
+    #[error("database")]
     Database(#[from] database::Error),
 }
 
