@@ -1,11 +1,13 @@
 use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
-use log::{error, info};
+use color_eyre::eyre::Context;
+use futures::FutureExt;
+use log::{debug, error, info};
 use serde::Deserialize;
 use service::{
-    endpoint::{enrollment, Enrollment, Role},
-    logging, State,
+    endpoint::{self, enrollment, Enrollment, Role},
+    logging, Account, Endpoint, State,
 };
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
@@ -26,7 +28,7 @@ async fn main() -> Result<()> {
 
     let state = State::load(root).await?;
 
-    tokio::spawn(send_initial_enrollment(config.clone(), state.clone()));
+    tokio::spawn(send_initial_enrollment(config.clone(), state.clone()).map(log_error));
 
     info!("avalanche listening on {host}:{port}");
 
@@ -52,20 +54,46 @@ pub struct AvalancheConfig {
     pub summit: enrollment::Target,
 }
 
-async fn send_initial_enrollment(config: Config, state: State) {
-    let issuer = config.issuer(Role::Builder, state.key_pair.clone());
+async fn log_error<T>(result: Result<T>) {
+    if let Err(e) = result {
+        // TODO: Remove {0} from service errors so we don't duplicate
+        // the error chain since # alternate format prints the causes for us
+        error!("{e:#}");
+    }
+}
 
-    // TODO: Check DB to ensure we aren't already enrolled to this
-    // summit target
-    match Enrollment::send(config.domain.summit, issuer).await {
-        Ok(enrollment) => {
-            state
-                .pending_enrollment
-                .insert(enrollment.endpoint, enrollment)
-                .await;
-        }
-        Err(err) => {
-            error!("Failed to send enrollment: {err}");
+async fn send_initial_enrollment(config: Config, state: State) -> Result<()> {
+    let target = &config.domain.summit;
+
+    // If we're paired & operational, we don't need to resend
+    for endpoint in Endpoint::list(&state.db).await? {
+        let account = Account::get(&state.db, endpoint.account)
+            .await
+            .context(format!(
+                "Can't find service account for endopoint {}",
+                endpoint.id
+            ))?;
+
+        if matches!(endpoint.status, endpoint::Status::Operational)
+            && endpoint.host_address == target.host_address
+            && account.public_key == target.public_key.encode()
+        {
+            debug!(
+                "Configured endpoint {} already operational with public key {}",
+                endpoint.host_address, account.public_key
+            );
+            return Ok(());
         }
     }
+
+    let issuer = config.issuer(Role::Builder, state.key_pair.clone());
+    let enrollment = Enrollment::send(config.domain.summit, issuer)
+        .await
+        .context("Failed to send enrollment")?;
+    state
+        .pending_enrollment
+        .insert(enrollment.endpoint, enrollment)
+        .await;
+
+    Ok(())
 }

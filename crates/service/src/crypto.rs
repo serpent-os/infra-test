@@ -75,7 +75,7 @@ impl fmt::Display for PublicKey {
     }
 }
 
-#[derive(Debug, Clone, From, Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, From, Display, Serialize, Deserialize)]
 pub struct EncodedPublicKey(String);
 
 impl EncodedPublicKey {

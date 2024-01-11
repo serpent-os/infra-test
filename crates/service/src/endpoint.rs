@@ -132,6 +132,20 @@ impl Endpoint {
         Ok(endpoints)
     }
 
+    pub async fn delete(&self, db: &Database) -> Result<(), database::Error> {
+        sqlx::query(
+            "
+            DELETE FROM endpoint
+            WHERE endpoint_id = ?;
+            ",
+        )
+        .bind(self.id.0)
+        .execute(&db.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub fn builder(&self) -> Option<&builder::Extension> {
         if let Some(Extension::Builder(ext)) = &self.extension {
             Some(ext)
