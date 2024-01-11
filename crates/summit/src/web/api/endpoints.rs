@@ -1,15 +1,16 @@
-use axum::{extract, Json};
-use log::error;
+use axum::extract;
+use color_eyre::eyre::Context;
 use serde::Serialize;
 use service::{Endpoint, State};
 
-pub async fn get(extract::State(state): extract::State<State>) -> Json<Endpoints> {
+use super::{Body, Error};
+
+pub async fn get(extract::State(state): extract::State<State>) -> Result<Body<Endpoints>, Error> {
     let endpoints = Endpoint::list(&state.db)
         .await
-        .map_err(|error| error!("List endpoints failed: {error}"))
-        .unwrap_or_default();
+        .context("failed to list endpoints")?;
 
-    Json(Endpoints { endpoints })
+    Ok(Body::ok(Endpoints { endpoints }))
 }
 
 #[derive(Serialize)]

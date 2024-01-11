@@ -4,7 +4,7 @@ use std::{
 };
 
 use axum::{extract::Request, middleware::Next, response::Response, Router};
-use log::debug;
+use log::{debug, error};
 use service::State;
 use tokio::net::ToSocketAddrs;
 
@@ -25,13 +25,19 @@ pub async fn serve(
 }
 
 async fn log(request: Request, next: Next) -> Response {
+    let method = request.method().to_string();
     let path = request.uri().path().to_string();
 
-    debug!("Received request for {path}");
+    debug!("{method} {path}: {request:?}");
 
     let response = next.run(request).await;
 
-    debug!("Returning response for {path}: {}", response.status());
+    if let Some(error) = response.extensions().get::<api::Error>() {
+        // # alternate format will log causes
+        error!("{method} {path}: {error:#}");
+    } else {
+        debug!("{method} {path}: {response:?}");
+    }
 
     response
 }

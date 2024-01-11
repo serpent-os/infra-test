@@ -2298,6 +2298,7 @@ dependencies = [
  "futures",
  "log",
  "serde",
+ "serde_json",
  "service",
  "tokio",
  "tonic",
