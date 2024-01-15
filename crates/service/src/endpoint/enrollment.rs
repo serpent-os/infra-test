@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use super::{
     proto::{self, EnrollmentRequest, EnrollmentRole},
-    service, Role,
+    service,
 };
 use crate::{
     account::{self, BearerToken},
@@ -14,7 +14,7 @@ use crate::{
     database, endpoint,
     sync::SharedMap,
     token::{self, VerifiedToken},
-    Account, Database, Endpoint, Token,
+    Account, Database, Endpoint, Role, Token,
 };
 
 pub type PendingEnrollment = SharedMap<endpoint::Id, Enrollment>;
@@ -166,7 +166,8 @@ impl Enrollment {
             bearer_token.expires()
         );
 
-        let mut client = service::connect_with_auth(self.target.host_address, self.token).await?;
+        let mut client =
+            service::connect_with_auth(self.target.host_address, self.token.encoded).await?;
 
         let resp = client
             .accept(EnrollmentRequest {
@@ -203,7 +204,8 @@ impl Enrollment {
 
     /// Decline the enrollment from the receiving side
     pub async fn decline(self) -> Result<(), Error> {
-        let mut client = service::connect_with_auth(self.target.host_address, self.token).await?;
+        let mut client =
+            service::connect_with_auth(self.target.host_address, self.token.encoded).await?;
 
         client.decline(()).await?;
 

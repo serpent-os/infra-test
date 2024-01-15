@@ -1,8 +1,23 @@
-use service::endpoint;
+use std::path::PathBuf;
+
+use clap::Parser;
+use color_eyre::eyre::Result;
+use service::{account, crypto::KeyPair, endpoint};
+use tonic::transport::Uri;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = endpoint::Client::connect("http://127.0.0.1:5001").await?;
+async fn main() -> Result<()> {
+    let Args { private_key } = Args::parse();
+
+    let key_pair = KeyPair::load(private_key)?;
+
+    println!("Using key_pair {}", key_pair.public_key().encode());
+
+    let summit_uri: Uri = "http://127.0.0.1:5001".parse()?;
+
+    let token = account::service::login(summit_uri.clone(), "admin".to_string(), key_pair).await?;
+
+    let mut client = endpoint::service::connect_with_auth(summit_uri, token).await?;
 
     let pending = client.pending(()).await?;
 
@@ -13,4 +28,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[derive(Debug, Parser)]
+struct Args {
+    #[arg(help = "Path to admin private key")]
+    private_key: PathBuf,
 }

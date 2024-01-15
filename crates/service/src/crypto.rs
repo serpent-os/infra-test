@@ -1,8 +1,11 @@
-use std::fmt;
+use std::{fmt, path::Path};
 
 use base64::Engine;
 use derive_more::{Display, From};
-use ed25519_dalek::{pkcs8::EncodePrivateKey, SECRET_KEY_LENGTH};
+use ed25519_dalek::{
+    pkcs8::{DecodePrivateKey, EncodePrivateKey},
+    Signature, Signer, SECRET_KEY_LENGTH,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -35,7 +38,18 @@ impl KeyPair {
     }
 
     pub fn der(&self) -> Result<ed25519_dalek::pkcs8::SecretDocument, Error> {
-        Ok(self.0.to_pkcs8_der()?)
+        self.0.to_pkcs8_der().map_err(Error::EncodeDerPrivateKey)
+    }
+
+    pub fn sign(&self, message: &[u8]) -> Signature {
+        self.0.sign(message)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Ok(Self(
+            ed25519_dalek::SigningKey::read_pkcs8_pem_file(path)
+                .map_err(Error::LoadPemPrivateKey)?,
+        ))
     }
 }
 
@@ -45,7 +59,13 @@ pub struct PublicKey(ed25519_dalek::VerifyingKey);
 
 impl PublicKey {
     pub fn encode(&self) -> EncodedPublicKey {
-        EncodedPublicKey(base64::prelude::BASE64_URL_SAFE_NO_PAD.encode(self.0.as_bytes()))
+        EncodedPublicKey(base64::prelude::BASE64_STANDARD_NO_PAD.encode(self.0.as_bytes()))
+    }
+
+    pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), Error> {
+        self.0
+            .verify_strict(message, signature)
+            .map_err(Error::VerifySignature)
     }
 }
 
@@ -80,12 +100,28 @@ pub struct EncodedPublicKey(String);
 
 impl EncodedPublicKey {
     pub fn decode(key: &str) -> Result<PublicKey, Error> {
-        let bytes = base64::prelude::BASE64_URL_SAFE_NO_PAD
+        let bytes = base64::prelude::BASE64_STANDARD_NO_PAD
             .decode(key)?
             .try_into()
             .unwrap_or_default();
 
-        Ok(PublicKey(ed25519_dalek::VerifyingKey::from_bytes(&bytes)?))
+        Ok(PublicKey(
+            ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(Error::DecodePublicKey)?,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, From, Display)]
+pub struct EncodedSignature(String);
+
+impl EncodedSignature {
+    pub fn decode(signature: &str) -> Result<Signature, Error> {
+        let bytes = base64::prelude::BASE64_STANDARD_NO_PAD
+            .decode(signature)?
+            .try_into()
+            .unwrap_or([0; 64]);
+
+        Ok(Signature::from_bytes(&bytes))
     }
 }
 
@@ -94,11 +130,15 @@ pub enum Error {
     #[error("base64 decode")]
     Base64Decode(#[from] base64::DecodeError),
     #[error("decode public key")]
-    DecodePublicKey(#[from] ed25519_dalek::SignatureError),
+    DecodePublicKey(#[source] ed25519_dalek::SignatureError),
     #[error("encode der public key")]
     EncodeDerPublicKey(#[from] ed25519_dalek::pkcs8::spki::Error),
     #[error("encode der private key")]
-    EncodeDerPrivateKey(#[from] ed25519_dalek::pkcs8::Error),
+    EncodeDerPrivateKey(#[source] ed25519_dalek::pkcs8::Error),
+    #[error("signature verification")]
+    VerifySignature(#[source] ed25519_dalek::SignatureError),
+    #[error("load pem private key")]
+    LoadPemPrivateKey(#[source] ed25519_dalek::pkcs8::Error),
     #[error(
         "invalid private key length, expected {} got {actual}",
         SECRET_KEY_LENGTH

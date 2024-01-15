@@ -3,6 +3,7 @@ syntax = "proto3";
 package vessel;
 
 import "collectable.proto";
+import "google/protobuf/empty.proto";
 
 message ImportBinariesRequest {
   uint64 report_id = 1;
@@ -10,9 +11,6 @@ message ImportBinariesRequest {
   string token = 3;
 }
 
-// TODO: Common Success type when body isn't needed?
-message ImportBinariesResponse {}
-
 service Vessel {
-  rpc ImportBinaries(ImportBinariesRequest) returns (ImportBinariesResponse) {}
+  rpc ImportBinaries(ImportBinariesRequest) returns (google.protobuf.Empty) {}
 }

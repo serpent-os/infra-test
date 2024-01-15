@@ -8,7 +8,10 @@ use strum::EnumString;
 use thiserror::Error;
 use uuid::Uuid;
 
+pub use self::service::{Client, Server, Service};
 use crate::{crypto::EncodedPublicKey, database, Database};
+
+pub mod service;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, FromRow)]
 #[serde(try_from = "&str", into = "String")]
@@ -71,6 +74,33 @@ impl Account {
             ",
         )
         .bind(id.0)
+        .fetch_one(&db.pool)
+        .await?;
+
+        Ok(account)
+    }
+
+    pub async fn lookup_with_credentials(
+        db: &Database,
+        username: &str,
+        public_key: &EncodedPublicKey,
+    ) -> Result<Self, Error> {
+        let account: Account = sqlx::query_as(
+            "
+            SELECT
+              account_id,
+              type,
+              username,
+              email,
+              public_key
+            FROM account
+            WHERE 
+              username = ?
+              AND public_key = ?;
+            ",
+        )
+        .bind(username)
+        .bind(public_key.to_string())
         .fetch_one(&db.pool)
         .await?;
 
@@ -239,4 +269,10 @@ impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
         Error::Database(database::Error::from(error))
     }
+}
+
+mod proto {
+    use tonic::include_proto;
+
+    include_proto!("account");
 }

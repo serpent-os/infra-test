@@ -3,6 +3,7 @@ fn main() {
     tonic_build::configure()
         .compile(
             &[
+                "proto/account.proto",
                 "proto/collectable.proto",
                 "proto/endpoint.proto",
                 "proto/vessel.proto",

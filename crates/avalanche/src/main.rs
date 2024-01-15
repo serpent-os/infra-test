@@ -6,8 +6,8 @@ use futures::FutureExt;
 use log::{debug, error, info};
 use serde::Deserialize;
 use service::{
-    endpoint::{self, enrollment, Enrollment, Role},
-    logging, Account, Endpoint, State,
+    endpoint::{self, enrollment, Enrollment},
+    logging, Account, Endpoint, Role, State,
 };
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;

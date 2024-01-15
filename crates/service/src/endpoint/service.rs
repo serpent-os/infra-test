@@ -368,8 +368,7 @@ impl EndpointService for Service {
         &self,
         request: tonic::Request<()>,
     ) -> std::result::Result<tonic::Response<EndpointArray>, tonic::Status> {
-        // TODO: Enable auth
-        // auth(&request, ADMIN_FLAGS)?;
+        auth(&request, ADMIN_FLAGS)?;
 
         if matches!(self.role(), EnrollmentRole::Hub) {
             log_handler(self.pending(request).await)
@@ -385,8 +384,7 @@ impl EndpointService for Service {
         &self,
         request: tonic::Request<EndpointId>,
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        // TODO: Enable auth
-        // auth(&request, ADMIN_FLAGS)?;
+        auth(&request, ADMIN_FLAGS)?;
 
         if matches!(self.role(), EnrollmentRole::Hub) {
             log_handler(self.accept_pending(request).await)
@@ -419,13 +417,13 @@ pub type Client<T> = proto::endpoint_service_client::EndpointServiceClient<T>;
 
 pub async fn connect_with_auth(
     uri: Uri,
-    token: VerifiedToken,
+    token: String,
 ) -> Result<Client<InterceptedService<Channel, impl Interceptor>>, tonic::transport::Error> {
     let channel = Channel::builder(uri).connect().await?;
     Ok(Client::with_interceptor(
         channel,
         move |mut req: tonic::Request<()>| {
-            let auth_header = format!("Bearer {}", token.encoded)
+            let auth_header = format!("Bearer {}", token)
                 .parse()
                 .map_err(|_| tonic::Status::internal(""))?;
             req.metadata_mut().insert("authorization", auth_header);

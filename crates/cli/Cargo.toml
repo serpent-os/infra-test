@@ -8,5 +8,7 @@ edition.workspace = true
 [dependencies]
 service = { path = "../service" }
 
+clap.workspace = true
+color-eyre.workspace = true
 tonic.workspace = true
 tokio.workspace = true

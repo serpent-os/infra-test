@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package account;
+
+import "google/protobuf/empty.proto";
+
+message Credentials {
+  string username = 1;
+  string public_key = 2;
+}
+
+message LoginRequest {
+  oneof body {
+    Credentials credentials = 1;
+    string signature = 2;
+  }
+}
+
+message LoginResponse {
+  oneof body {
+    string challenge = 1;
+    string token = 2;
+  }
+}
+
+service AccountService {
+  rpc Login(stream LoginRequest) returns (stream LoginResponse) {}
+}

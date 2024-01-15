@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use futures::{select, FutureExt};
 use log::info;
-use service::{endpoint::Role, logging, State};
+use service::{logging, Role, State};
 
 mod web;
 

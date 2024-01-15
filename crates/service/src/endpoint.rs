@@ -185,26 +185,6 @@ impl Role {
     }
 }
 
-impl From<proto::EnrollmentRole> for Role {
-    fn from(role: proto::EnrollmentRole) -> Self {
-        match role {
-            proto::EnrollmentRole::Builder => Self::Builder,
-            proto::EnrollmentRole::RepositoryManager => Self::RepositoryManager,
-            proto::EnrollmentRole::Hub => Self::Hub,
-        }
-    }
-}
-
-impl From<Role> for proto::EnrollmentRole {
-    fn from(role: Role) -> Self {
-        match role {
-            Role::Builder => Self::Builder,
-            Role::RepositoryManager => Self::RepositoryManager,
-            Role::Hub => Self::Hub,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Extension {
@@ -234,5 +214,27 @@ pub mod builder {
 mod proto {
     use tonic::include_proto;
 
+    use crate::Role;
+
     include_proto!("endpoint");
+
+    impl From<EnrollmentRole> for Role {
+        fn from(role: EnrollmentRole) -> Self {
+            match role {
+                EnrollmentRole::Builder => Self::Builder,
+                EnrollmentRole::RepositoryManager => Self::RepositoryManager,
+                EnrollmentRole::Hub => Self::Hub,
+            }
+        }
+    }
+
+    impl From<Role> for EnrollmentRole {
+        fn from(role: Role) -> Self {
+            match role {
+                Role::Builder => Self::Builder,
+                Role::RepositoryManager => Self::RepositoryManager,
+                Role::Hub => Self::Hub,
+            }
+        }
+    }
 }

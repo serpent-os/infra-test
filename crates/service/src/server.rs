@@ -12,11 +12,7 @@ use tower::{
     Layer, Service,
 };
 
-use crate::{
-    account,
-    endpoint::{self, Role},
-    middleware, token, Config, State,
-};
+use crate::{account, endpoint, middleware, token, Config, Role, State};
 
 pub async fn start<T>(
     bind: impl Into<SocketAddr>,
@@ -43,6 +39,11 @@ impl<T> Server<T, DefaultMiddleware> {
         let endpoint_service = endpoint::Server::new(endpoint::Service {
             issuer: config.issuer(role, state.key_pair.clone()),
         });
+        let account_service = account::Server::new(account::Service {
+            db: state.db.clone(),
+            key_pair: state.key_pair.clone(),
+            role,
+        });
         let router = tonic::transport::Server::builder()
             .layer(tonic::service::interceptor(middleware::Extensions {
                 db: state.db.clone(),
@@ -53,7 +54,8 @@ impl<T> Server<T, DefaultMiddleware> {
                 pub_key: state.key_pair.public_key(),
                 validation: token::Validation::new().iss(role.service_name()),
             })
-            .add_service(endpoint_service);
+            .add_service(endpoint_service)
+            .add_service(account_service);
 
         Self {
             router,
