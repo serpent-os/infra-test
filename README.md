@@ -8,7 +8,7 @@ Test bed for infra in rust
 
 ```
 openssl genpkey -algorithm ED25519 -out admin.pem
-openssl pkey -in admin2.pem -pubout -outform DER | tail -c 32 | base64 | tr -d '='
+openssl pkey -in admin.pem -pubout -outform DER | tail -c 32 | base64 | tr -d '='
 ```
 
 - Run summit
