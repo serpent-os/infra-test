@@ -1,0 +1,20 @@
+services:
+  summit:
+    image: serpentos/summit
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    user: ${MY_UID}:${MY_GID}
+    volumes:
+      - ./summit:/state
+  avalanche:
+    image: serpentos/avalanche
+    ports:
+      - "5002:5002"
+    user: ${MY_UID}:${MY_GID}
+    volumes:
+      - ./avalanche:/state
+    depends_on:
+      summit:
+        condition: service_started
+        restart: true

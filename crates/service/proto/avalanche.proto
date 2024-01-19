@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package avalanche;
+
+import "google/protobuf/empty.proto";
+
+message BinaryCollection {
+  string index_uri = 1;
+  string name = 2;
+  uint32 priority = 3;
+}
+
+message PackageBuild {
+  uint64 build_id = 1;
+  string uri = 2;
+  string commit_ref = 3;
+  string relative_path = 4;
+  string build_architecture = 5;
+  repeated BinaryCollection collections = 6;
+}
+
+service AvalancheService {
+  rpc BuildPackage(PackageBuild) returns (google.protobuf.Empty) {}
+}

@@ -2,12 +2,12 @@ use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
 use color_eyre::eyre::Context;
-use futures::FutureExt;
+use futures::{select, FutureExt};
 use log::{debug, error, info};
 use serde::Deserialize;
 use service::{
     endpoint::{self, enrollment, Enrollment},
-    logging, Account, Endpoint, Role, State,
+    logging, signal, Account, Endpoint, Role, State,
 };
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
@@ -32,7 +32,17 @@ async fn main() -> Result<()> {
 
     info!("avalanche listening on {host}:{port}");
 
-    service::start((host, port), Role::Builder, config, state).await?;
+    let mut grpc = service::start((host, port), Role::Builder, config, state)
+        .boxed()
+        .fuse();
+    let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])
+        .boxed()
+        .fuse();
+
+    select! {
+        res = grpc => res?,
+        res = stop => res?,
+    }
 
     Ok(())
 }

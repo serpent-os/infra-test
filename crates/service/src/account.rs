@@ -2,6 +2,7 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 use derive_more::From;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use strum::EnumString;
@@ -256,6 +257,11 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
     .await?;
 
     transaction.commit().await?;
+
+    debug!(
+        "Admin account set as username {}, public_key {}",
+        &admin.username, &admin.public_key
+    );
 
     Ok(())
 }

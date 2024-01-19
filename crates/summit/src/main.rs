@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use futures::{select, FutureExt};
 use log::info;
-use service::{logging, Role, State};
+use service::{logging, signal, Role, State};
 
 mod web;
 
@@ -35,12 +35,16 @@ async fn main() -> Result<()> {
     let mut grpc = service::start((host, grpc_port), Role::Hub, config, state)
         .boxed()
         .fuse();
+    let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])
+        .boxed()
+        .fuse();
 
     info!("summit listening on web: {host}:{web_port}, grpc: {host}:{grpc_port}");
 
     select! {
         res = grpc => res?,
         res = web => res?,
+        res = stop => res?,
     }
 
     Ok(())

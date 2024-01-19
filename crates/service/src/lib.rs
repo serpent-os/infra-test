@@ -16,6 +16,7 @@ pub mod logging;
 pub mod middleware;
 pub mod role;
 pub mod server;
+pub mod signal;
 pub mod state;
 pub mod sync;
 pub mod token;
