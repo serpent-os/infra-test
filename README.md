@@ -4,6 +4,8 @@ Test bed for infra in rust
 
 ## Testing
 
+### Services
+
 - Generate ED25519 private key and add it's encoded public key to `crates/summit/config.local.toml`
 
 ```
@@ -35,4 +37,19 @@ cargo run -p cli ./admin.pem
 
 ```sh
 curl -s -H 'content-type: application/json' 127.0.0.1:5000/api/v1/endpoints | jq
+```
+
+### Frontend
+
+- Install pnpm
+- Setup and run dev
+
+```sh
+cd crates/summit/frontend
+# Use pinned node version
+pnpm env use --global $(cat .nvmrc)
+# install deps
+pnpm install
+# run dev server (vite is setup to proxy api requests to backend in dev)
+pnpm dev
 ```
