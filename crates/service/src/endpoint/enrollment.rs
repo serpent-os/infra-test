@@ -124,15 +124,15 @@ impl Enrollment {
         info!("Created a new service account {account_id}");
 
         let endpoint_id = self.endpoint;
-        let extension = match self.target.role {
-            Role::Builder => Some(endpoint::Extension::Builder(endpoint::builder::Extension {
+        let kind = match self.target.role {
+            Role::Builder => endpoint::Kind::Builder(endpoint::builder::Extension {
                 admin_email: self.target.admin_email.clone(),
                 admin_name: self.target.admin_name.clone(),
                 description: self.target.description.clone(),
                 work_status: endpoint::builder::WorkStatus::Idle,
-            })),
-            Role::RepositoryManager => todo!(),
-            Role::Hub => None,
+            }),
+            Role::RepositoryManager => endpoint::Kind::RepositoryManager,
+            Role::Hub => endpoint::Kind::Hub,
         };
 
         let mut endpoint = Endpoint {
@@ -141,7 +141,7 @@ impl Enrollment {
             status: endpoint::Status::AwaitingAcceptance,
             error: None,
             account: account_id,
-            extension,
+            kind,
         };
         endpoint.save(db).await.map_err(Error::CreateEndpoint)?;
 
@@ -256,8 +256,7 @@ impl Enrollment {
             status: endpoint::Status::Operational,
             error: None,
             account,
-            // Hub endpoint has no extensions
-            extension: None,
+            kind: endpoint::Kind::Hub,
         }
         .save(db)
         .await

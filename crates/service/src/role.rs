@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, strum::Display, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, strum::Display, strum::EnumString, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum Role {

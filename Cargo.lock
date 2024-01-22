@@ -1935,6 +1935,7 @@ dependencies = [
  "prost",
  "rand",
  "serde",
+ "serde_json",
  "sqlx",
  "strum",
  "thiserror",

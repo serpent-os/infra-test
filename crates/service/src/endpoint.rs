@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 pub use self::enrollment::Enrollment;
 pub use self::service::{Client, Server, Service};
-use crate::{account, database, Database};
+use crate::{account, database, Database, Role};
 
 pub mod enrollment;
 pub mod service;
@@ -65,8 +65,9 @@ pub struct Endpoint {
     pub error: Option<String>,
     #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub account: account::Id,
-    #[sqlx(json)]
-    pub extension: Option<Extension>,
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub kind: Kind,
 }
 
 impl Endpoint {
@@ -80,14 +81,16 @@ impl Endpoint {
               status,
               error,
               account_id,
+              role,
               extension
             )
-            VALUES (?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(account_id) DO UPDATE SET 
               host_address=excluded.host_address,
               status=excluded.status,
               error=excluded.error,
               account_id=excluded.account_id,
+              role=excluded.role,
               extension=excluded.extension;
             ",
         )
@@ -96,7 +99,8 @@ impl Endpoint {
         .bind(self.status.to_string())
         .bind(&self.error)
         .bind(self.account.uuid())
-        .bind(Json(&self.extension))
+        .bind(self.kind.role().to_string())
+        .bind(Json(self.kind.extension_json()))
         .execute(&db.pool)
         .await?;
 
@@ -112,6 +116,7 @@ impl Endpoint {
               status,
               error,
               account_id,
+              role,
               extension
             FROM endpoint;
             ",
@@ -137,7 +142,7 @@ impl Endpoint {
     }
 
     pub fn builder(&self) -> Option<&builder::Extension> {
-        if let Some(Extension::Builder(ext)) = &self.extension {
+        if let Kind::Builder(ext) = &self.kind {
             Some(ext)
         } else {
             None
@@ -200,29 +205,57 @@ pub enum Status {
     Unreachable,
 }
 
-#[derive(Debug, Clone, Copy, strum::Display, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
-pub enum Role {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "role", content = "extension", rename_all = "kebab-case")]
+pub enum Kind {
     Hub,
     RepositoryManager,
-    Builder,
+    Builder(builder::Extension),
 }
 
-impl Role {
-    pub fn service_name(&self) -> &'static str {
+impl Kind {
+    pub fn role(&self) -> Role {
         match self {
-            Role::Hub => "summit",
-            Role::RepositoryManager => "vessel",
-            Role::Builder => "avalanche",
+            Self::Hub => Role::Hub,
+            Self::RepositoryManager => Role::RepositoryManager,
+            Self::Builder(_) => Role::Builder,
+        }
+    }
+
+    pub fn extension_json(&self) -> Option<serde_json::Value> {
+        match self {
+            Kind::Hub => None,
+            Kind::RepositoryManager => None,
+            Kind::Builder(ext) => serde_json::to_value(ext).ok(),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum Extension {
-    Builder(builder::Extension),
+impl<'a> FromRow<'a, sqlx::sqlite::SqliteRow> for Kind {
+    fn from_row(row: &'a sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        #[derive(Debug, FromRow)]
+        struct Row {
+            #[sqlx(try_from = "&'a str")]
+            role: Role,
+            #[sqlx(json)]
+            extension: Option<serde_json::Value>,
+        }
+
+        let row = Row::from_row(row)?;
+
+        match (row.role, row.extension) {
+            (Role::Builder, Some(value)) => {
+                let extension = builder::Extension::deserialize(value)
+                    .map_err(|e| sqlx::Error::Decode(Box::from(e)))?;
+                Ok(Kind::Builder(extension))
+            }
+            (Role::Builder, _) => Err(sqlx::Error::Decode(Box::from(
+                "extension can't be null for builder endpoint",
+            ))),
+            (Role::Hub, _) => Ok(Kind::Hub),
+            (Role::RepositoryManager, _) => Ok(Kind::RepositoryManager),
+        }
+    }
 }
 
 pub mod builder {
