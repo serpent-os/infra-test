@@ -140,12 +140,18 @@ impl Enrollment {
             host_address: self.target.host_address.clone(),
             status: endpoint::Status::AwaitingAcceptance,
             error: None,
-            bearer_token: Some(self.token.encoded.clone()),
-            api_token: None,
             account: account_id,
             extension,
         };
         endpoint.save(db).await.map_err(Error::CreateEndpoint)?;
+
+        endpoint::Tokens {
+            bearer_token: Some(self.token.encoded.clone()),
+            api_token: None,
+        }
+        .save(db, endpoint.id)
+        .await
+        .map_err(Error::SetEndpointBearerToken)?;
 
         info!("Created a new endpoint {endpoint_id} associated to {username}");
 
@@ -159,7 +165,7 @@ impl Enrollment {
             bearer_token.expires(),
         )
         .await
-        .map_err(Error::SetBearerToken)?;
+        .map_err(Error::SetAccountBearerToken)?;
 
         info!(
             "Bearer token created for {account_id}, expires on {}",
@@ -249,8 +255,6 @@ impl Enrollment {
             host_address: self.target.host_address.clone(),
             status: endpoint::Status::Operational,
             error: None,
-            bearer_token: Some(bearer_token),
-            api_token: None,
             account,
             // Hub endpoint has no extensions
             extension: None,
@@ -259,11 +263,19 @@ impl Enrollment {
         .await
         .map_err(Error::CreateEndpoint)?;
 
+        endpoint::Tokens {
+            bearer_token: Some(bearer_token),
+            api_token: None,
+        }
+        .save(db, endpoint)
+        .await
+        .map_err(Error::SetEndpointBearerToken)?;
+
         info!("Created a new endpoint {endpoint} associated to {username}");
 
         BearerToken::set(db, self.account, &self.token.encoded, self.token.expires())
             .await
-            .map_err(Error::SetBearerToken)?;
+            .map_err(Error::SetAccountBearerToken)?;
 
         info!(
             "Bearer token created for {account}, expires on {}",
@@ -312,8 +324,10 @@ pub enum Error {
     CreateServiceAccount(#[source] account::Error),
     #[error("create endpoint")]
     CreateEndpoint(#[source] database::Error),
-    #[error("set bearer token")]
-    SetBearerToken(#[source] account::Error),
+    #[error("set endpoint bearer token")]
+    SetEndpointBearerToken(#[source] database::Error),
+    #[error("set account bearer token")]
+    SetAccountBearerToken(#[source] account::Error),
     #[error("update endpoint status")]
     UpdateEndpointStatus(#[source] database::Error),
     #[error("public key mismatch, expected {expected} got {actual}")]

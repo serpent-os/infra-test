@@ -48,7 +48,7 @@ impl From<Id> for String {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Account {
     #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub id: Id,

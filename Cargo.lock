@@ -2316,6 +2316,8 @@ dependencies = [
  "clap",
  "color-eyre",
  "futures",
+ "http 0.2.11",
+ "http-serde",
  "log",
  "serde",
  "serde_json",

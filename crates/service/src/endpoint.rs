@@ -63,8 +63,6 @@ pub struct Endpoint {
     #[sqlx(try_from = "&'a str")]
     pub status: Status,
     pub error: Option<String>,
-    pub bearer_token: Option<String>,
-    pub api_token: Option<String>,
     #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub account: account::Id,
     #[sqlx(json)]
@@ -81,18 +79,14 @@ impl Endpoint {
               host_address,
               status,
               error,
-              bearer_token,
-              api_token,
               account_id,
               extension
             )
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?)
             ON CONFLICT(account_id) DO UPDATE SET 
               host_address=excluded.host_address,
               status=excluded.status,
               error=excluded.error,
-              bearer_token=excluded.bearer_token,
-              api_token=excluded.api_token,
               account_id=excluded.account_id,
               extension=excluded.extension;
             ",
@@ -101,8 +95,6 @@ impl Endpoint {
         .bind(self.host_address.to_string())
         .bind(self.status.to_string())
         .bind(&self.error)
-        .bind(&self.bearer_token)
-        .bind(&self.api_token)
         .bind(self.account.uuid())
         .bind(Json(&self.extension))
         .execute(&db.pool)
@@ -119,8 +111,6 @@ impl Endpoint {
               host_address,
               status,
               error,
-              bearer_token,
-              api_token,
               account_id,
               extension
             FROM endpoint;
@@ -152,6 +142,50 @@ impl Endpoint {
         } else {
             None
         }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct Tokens {
+    pub bearer_token: Option<String>,
+    pub api_token: Option<String>,
+}
+
+impl Tokens {
+    pub async fn save(&self, db: &Database, id: Id) -> Result<(), database::Error> {
+        sqlx::query(
+            "
+            UPDATE endpoint
+            SET
+              bearer_token = ?,
+              api_token = ?
+            WHERE endpoint_id = ?;
+            ",
+        )
+        .bind(&self.bearer_token)
+        .bind(&self.api_token)
+        .bind(id.0)
+        .execute(&db.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get(db: &Database, id: Id) -> Result<Self, database::Error> {
+        let tokens: Tokens = sqlx::query_as(
+            "
+            SELECT
+              bearer_token,
+              api_token
+            FROM endpoint
+            WHERE endpoint_id = ?;
+            ",
+        )
+        .bind(id.0)
+        .fetch_one(&db.pool)
+        .await?;
+
+        Ok(tokens)
     }
 }
 
