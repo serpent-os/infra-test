@@ -150,15 +150,17 @@ pub struct Payload {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Purpose {
-    Authorization,
-    Authentication,
+    // Authentication
+    Account,
+    // Authorization
+    Api,
 }
 
 impl Purpose {
     pub fn duration(&self) -> Duration {
         match self {
-            Purpose::Authorization => Duration::days(7),
-            Purpose::Authentication => Duration::hours(1),
+            Purpose::Account => Duration::days(7),
+            Purpose::Api => Duration::hours(1),
         }
     }
 }
@@ -197,7 +199,7 @@ mod test {
                 iat: now.timestamp(),
                 iss: "test".into(),
                 sub: "test".into(),
-                purpose: Purpose::Authorization,
+                purpose: Purpose::Account,
                 account_id: Uuid::new_v4().into(),
                 account_type: account::Kind::Admin,
             },

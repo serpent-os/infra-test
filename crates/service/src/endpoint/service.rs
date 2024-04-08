@@ -10,26 +10,26 @@ use tonic::{
 
 use super::enrollment::{self, Issuer};
 use super::proto::{
-    self, endpoint_service_server::EndpointService, EndpointArray, EndpointId, EnrollmentRequest,
-    EnrollmentRole, TokenResponse,
+    self, endpoint_service_server::EndpointService, EndpointArray, EndpointId, EndpointRole,
+    EnrollmentRequest,
 };
 use crate::{
     account,
     crypto::EncodedPublicKey,
     endpoint::{self, enrollment::PendingEnrollment, Enrollment},
-    middleware::{auth, log::log_handler},
+    middleware::{auth, log_handler},
     token::{self, VerifiedToken},
     Database, Token,
 };
 
 const SERVICE_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
     auth::Flags::NOT_EXPIRED.bits()
-        | auth::Flags::BEARER_TOKEN.bits()
+        | auth::Flags::ACCOUNT_TOKEN.bits()
         | auth::Flags::SERVICE_ACCOUNT.bits(),
 );
 const ADMIN_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
     auth::Flags::NOT_EXPIRED.bits()
-        | auth::Flags::ACCESS_TOKEN.bits()
+        | auth::Flags::API_TOKEN.bits()
         | auth::Flags::ADMIN_ACCOUNT.bits(),
 );
 
@@ -37,35 +37,34 @@ pub type Server = proto::endpoint_service_server::EndpointServiceServer<Service>
 
 pub struct Service {
     pub issuer: Issuer,
+    pub db: Database,
+    pub pending_enrollment: PendingEnrollment,
 }
 
 impl Service {
-    fn role(&self) -> EnrollmentRole {
+    fn role(&self) -> EndpointRole {
         self.issuer.role.into()
     }
 
     async fn enroll(&self, request: tonic::Request<EnrollmentRequest>) -> Result<(), Error> {
-        let pending = request
-            .extensions()
-            .get::<PendingEnrollment>()
-            .cloned()
-            .ok_or(Error::MissingExtension("PendingEnrollment"))?;
-
         let request = request.into_inner();
 
         // Proto3 makes all message types optional for backwards compatability
         let issuer = request.issuer.as_ref().ok_or(Error::MalformedRequest)?;
         let public_key =
             EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
-        let verified_token =
-            Token::verify(&request.issue_token, &public_key, &token::Validation::new())
-                .map_err(Error::VerifyToken)?;
+        let verified_token = Token::verify(
+            &request.account_token,
+            &public_key,
+            &token::Validation::new(),
+        )
+        .map_err(Error::VerifyToken)?;
 
         if !matches!(
             verified_token.decoded.payload.purpose,
-            token::Purpose::Authorization
+            token::Purpose::Account
         ) {
-            return Err(Error::RequireAuthorizationToken);
+            return Err(Error::RequireAccountToken);
         }
         if request.role() != self.role() {
             return Err(Error::RoleMismatch {
@@ -79,7 +78,7 @@ impl Service {
         let endpoint = endpoint::Id::generate();
         let account = account::Id::generate();
 
-        pending
+        self.pending_enrollment
             .insert(
                 endpoint,
                 Enrollment {
@@ -106,32 +105,25 @@ impl Service {
             .extensions()
             .get::<VerifiedToken>()
             .cloned()
-            .ok_or(Error::MissingExtension("VerifiedToken"))?;
-        let pending_enrollment = request
-            .extensions()
-            .get::<PendingEnrollment>()
-            .cloned()
-            .ok_or(Error::MissingExtension("PendingEnrollment"))?;
-        let db = request
-            .extensions()
-            .get::<Database>()
-            .cloned()
-            .ok_or(Error::MissingExtension("Database"))?;
+            .ok_or(Error::MissingRequestToken)?;
 
         let request = request.into_inner();
 
         let issuer = request.issuer.as_ref().ok_or(Error::MalformedRequest)?;
         let public_key =
             EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
-        let verified_token =
-            Token::verify(&request.issue_token, &public_key, &token::Validation::new())
-                .map_err(Error::VerifyToken)?;
+        let verified_token = Token::verify(
+            &request.account_token,
+            &public_key,
+            &token::Validation::new(),
+        )
+        .map_err(Error::VerifyToken)?;
 
         if !matches!(
             verified_token.decoded.payload.purpose,
-            token::Purpose::Authorization
+            token::Purpose::Account
         ) {
-            return Err(Error::RequireAuthorizationToken);
+            return Err(Error::RequireAccountToken);
         }
         if request.role() != self.role() {
             return Err(Error::RoleMismatch {
@@ -149,27 +141,22 @@ impl Service {
 
         info!("Got an enrollment acceptance for endpoint {endpoint}: {request:?}");
 
-        pending_enrollment
+        self.pending_enrollment
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?
-            .accepted(&db, &public_key, verified_token.encoded)
+            .accepted(&self.db, &public_key, verified_token.encoded)
             .await?;
 
         Ok(())
     }
 
     async fn decline(&self, request: tonic::Request<()>) -> Result<(), Error> {
-        let pending_enrollment = request
-            .extensions()
-            .get::<PendingEnrollment>()
-            .cloned()
-            .ok_or(Error::MissingExtension("PendingEnrollment"))?;
         let token = request
             .extensions()
             .get::<VerifiedToken>()
             .cloned()
-            .ok_or(Error::MissingExtension("VerifiedToken"))?;
+            .ok_or(Error::MissingRequestToken)?;
 
         let endpoint = token
             .decoded
@@ -180,19 +167,14 @@ impl Service {
 
         info!("Endpoint enrollment declined for {endpoint}");
 
-        pending_enrollment.remove(&endpoint).await;
+        self.pending_enrollment.remove(&endpoint).await;
 
         Ok(())
     }
 
-    async fn pending(&self, request: tonic::Request<()>) -> Result<EndpointArray, Error> {
-        let pending_enrollment = request
-            .extensions()
-            .get::<PendingEnrollment>()
-            .cloned()
-            .ok_or(Error::MissingExtension("PendingEnrollment"))?;
-
-        let endpoints = pending_enrollment
+    async fn pending(&self, _request: tonic::Request<()>) -> Result<EndpointArray, Error> {
+        let endpoints = self
+            .pending_enrollment
             .all()
             .await
             .into_values()
@@ -210,24 +192,14 @@ impl Service {
     }
 
     async fn accept_pending(&self, request: tonic::Request<EndpointId>) -> Result<(), Error> {
-        let pending_enrollment = request
-            .extensions()
-            .get::<PendingEnrollment>()
-            .cloned()
-            .ok_or(Error::MissingExtension("PendingEnrollment"))?;
-        let db = request
-            .extensions()
-            .get::<Database>()
-            .cloned()
-            .ok_or(Error::MissingExtension("Database"))?;
-
         let request = request.into_inner();
         let endpoint = request
             .id
             .parse::<endpoint::Id>()
             .map_err(Error::InvalidEndpoint)?;
 
-        let enrollment = pending_enrollment
+        let enrollment = self
+            .pending_enrollment
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
@@ -235,7 +207,7 @@ impl Service {
         info!("Accepting pending enrollment for endpoint {endpoint}");
 
         enrollment
-            .accept(&db, self.issuer.clone())
+            .accept(&self.db, self.issuer.clone())
             .await
             .map_err(Error::Enrollment)?;
 
@@ -243,19 +215,14 @@ impl Service {
     }
 
     async fn decline_pending(&self, request: tonic::Request<EndpointId>) -> Result<(), Error> {
-        let pending_enrollment = request
-            .extensions()
-            .get::<PendingEnrollment>()
-            .cloned()
-            .ok_or(Error::MissingExtension("PendingEnrollment"))?;
-
         let request = request.into_inner();
         let endpoint = request
             .id
             .parse::<endpoint::Id>()
             .map_err(Error::InvalidEndpoint)?;
 
-        let enrollment = pending_enrollment
+        let enrollment = self
+            .pending_enrollment
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
@@ -277,7 +244,7 @@ impl EndpointService for Service {
         // Technically the same as ommitting this check
         auth(&request, auth::Flags::NO_AUTH)?;
 
-        if matches!(self.role(), EnrollmentRole::Hub) {
+        if matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.enroll(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -293,7 +260,7 @@ impl EndpointService for Service {
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
         auth(&request, SERVICE_FLAGS)?;
 
-        if !matches!(self.role(), EnrollmentRole::Hub) {
+        if !matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.accept(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -308,7 +275,7 @@ impl EndpointService for Service {
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
         auth(&request, SERVICE_FLAGS)?;
 
-        if !matches!(self.role(), EnrollmentRole::Hub) {
+        if !matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.decline(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -323,7 +290,7 @@ impl EndpointService for Service {
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
         auth(&request, SERVICE_FLAGS)?;
 
-        if !matches!(self.role(), EnrollmentRole::Hub) {
+        if !matches!(self.role(), EndpointRole::Hub) {
             Err(tonic::Status::unimplemented("unimplemented"))
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -342,35 +309,13 @@ impl EndpointService for Service {
         Err(tonic::Status::unimplemented("unimplemented"))
     }
 
-    async fn refresh_token(
-        &self,
-        request: tonic::Request<()>,
-    ) -> std::result::Result<tonic::Response<TokenResponse>, tonic::Status> {
-        auth(&request, SERVICE_FLAGS)?;
-
-        Err(tonic::Status::unimplemented("unimplemented"))
-    }
-
-    async fn refresh_issue_token(
-        &self,
-        request: tonic::Request<()>,
-    ) -> std::result::Result<tonic::Response<TokenResponse>, tonic::Status> {
-        // Allow expired token here
-        auth(
-            &request,
-            auth::Flags::BEARER_TOKEN | auth::Flags::SERVICE_ACCOUNT,
-        )?;
-
-        Err(tonic::Status::unimplemented("unimplemented"))
-    }
-
     async fn pending(
         &self,
         request: tonic::Request<()>,
     ) -> std::result::Result<tonic::Response<EndpointArray>, tonic::Status> {
         auth(&request, ADMIN_FLAGS)?;
 
-        if matches!(self.role(), EnrollmentRole::Hub) {
+        if matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.pending(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -386,7 +331,7 @@ impl EndpointService for Service {
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
         auth(&request, ADMIN_FLAGS)?;
 
-        if matches!(self.role(), EnrollmentRole::Hub) {
+        if matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.accept_pending(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -402,7 +347,7 @@ impl EndpointService for Service {
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
         auth(&request, ADMIN_FLAGS)?;
 
-        if matches!(self.role(), EnrollmentRole::Hub) {
+        if matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.decline_pending(request).await)
         } else {
             Err(tonic::Status::unimplemented(format!(
@@ -434,18 +379,18 @@ pub async fn connect_with_auth(
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Missing extension {0}")]
-    MissingExtension(&'static str),
+    #[error("Token missing from request")]
+    MissingRequestToken,
     #[error("Malformed request")]
     MalformedRequest,
-    #[error("Requires an Authorization token")]
-    RequireAuthorizationToken,
+    #[error("Requires an account token")]
+    RequireAccountToken,
     #[error("Invalid public key")]
     InvalidPublicKey,
     #[error("Role mismatch, expected {expected:?} provided {provided:?}")]
     RoleMismatch {
-        expected: EnrollmentRole,
-        provided: EnrollmentRole,
+        expected: EndpointRole,
+        provided: EndpointRole,
     },
     #[error("Pending enrollment missing for endpoint {0}")]
     MissingPendingEnrollment(endpoint::Id),
@@ -462,16 +407,14 @@ pub enum Error {
 impl From<Error> for tonic::Status {
     fn from(error: Error) -> Self {
         let mut status = match &error {
-            Error::MissingExtension(_) => tonic::Status::internal(""),
+            Error::MissingRequestToken => tonic::Status::internal(""),
             Error::MalformedRequest => tonic::Status::internal(""),
             Error::VerifyToken(_) => tonic::Status::internal(""),
             Error::Enrollment(_) => tonic::Status::internal(""),
             Error::InvalidPublicKey => tonic::Status::invalid_argument("not a valid public key"),
             Error::InvalidUrl(_) => tonic::Status::invalid_argument("not a valid URL"),
             Error::InvalidEndpoint(_) => tonic::Status::invalid_argument(""),
-            Error::RequireAuthorizationToken => {
-                tonic::Status::invalid_argument("authorization token required")
-            }
+            Error::RequireAccountToken => tonic::Status::invalid_argument("account token required"),
             Error::RoleMismatch { expected, .. } => {
                 tonic::Status::invalid_argument(format!("only supported by {expected:?} role"))
             }

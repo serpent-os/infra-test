@@ -154,12 +154,12 @@ pub enum Kind {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub struct BearerToken {
+pub struct Token {
     pub encoded: String,
     pub expiration: DateTime<Utc>,
 }
 
-impl BearerToken {
+impl Token {
     pub async fn set(
         db: &Database,
         id: Id,
@@ -168,7 +168,7 @@ impl BearerToken {
     ) -> Result<(), Error> {
         sqlx::query(
             "
-            INSERT INTO bearer_token
+            INSERT INTO account_token
             (
               account_id,
               encoded,
@@ -186,13 +186,13 @@ impl BearerToken {
         Ok(())
     }
 
-    pub async fn get(db: &Database, id: Id) -> Result<BearerToken, Error> {
-        let token: BearerToken = sqlx::query_as(
+    pub async fn get(db: &Database, id: Id) -> Result<Token, Error> {
+        let token: Token = sqlx::query_as(
             "
             SELECT
               encoded,
               expiration
-            FROM bearer_token
+            FROM account_token
             WHERE account_id = ?;
             ",
         )

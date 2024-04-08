@@ -17,13 +17,14 @@ use tonic::transport;
 use crate::{
     account,
     crypto::{self, EncodedPublicKey, EncodedSignature, KeyPair, PublicKey},
-    middleware::log::log_handler,
+    middleware::log_handler,
     token, Account, Database, Role, Token,
 };
 
+pub use super::proto::TokenResponse;
 use super::proto::{
-    self, account_service_server::AccountService, login_request, login_response, Credentials,
-    LoginRequest, LoginResponse,
+    self, account_service_server::AccountService, authenticate_request, authenticate_response,
+    AuthenticateRequest, AuthenticateResponse, Credentials, RefreshTokenRequest,
 };
 
 pub type Server = proto::account_service_server::AccountServiceServer<Service>;
@@ -36,10 +37,10 @@ pub struct Service {
 }
 
 impl Service {
-    pub fn login(
+    pub fn authenticate(
         &self,
-        request: tonic::Request<tonic::Streaming<LoginRequest>>,
-    ) -> impl Stream<Item = Result<LoginResponse, Error>> + 'static {
+        request: tonic::Request<tonic::Streaming<AuthenticateRequest>>,
+    ) -> impl Stream<Item = Result<AuthenticateResponse, Error>> + 'static {
         #[allow(clippy::large_enum_variant)]
         enum State {
             Idle {
@@ -78,7 +79,7 @@ impl Service {
                 match (state, body) {
                     (
                         State::Idle { db, key_pair, role },
-                        login_request::Body::Credentials(Credentials {
+                        authenticate_request::Body::Credentials(Credentials {
                             username,
                             public_key,
                         }),
@@ -103,11 +104,13 @@ impl Service {
                         base64::prelude::BASE64_STANDARD_NO_PAD
                             .encode_string(rand.gen::<[u8; 16]>(), &mut challenge);
 
-                        debug!("Created login challenge for user {username}, public_key {encoded_public_key}: {challenge}");
+                        debug!("Created authenticate challenge for user {username}, public_key {encoded_public_key}: {challenge}");
 
                         Ok(Some((
-                            LoginResponse {
-                                body: Some(login_response::Body::Challenge(challenge.clone())),
+                            AuthenticateResponse {
+                                body: Some(authenticate_response::Body::Challenge(
+                                    challenge.clone(),
+                                )),
                             },
                             (
                                 incoming,
@@ -129,7 +132,7 @@ impl Service {
                             public_key,
                             challenge,
                         },
-                        login_request::Body::Signature(signature),
+                        authenticate_request::Body::Signature(signature),
                     ) => {
                         let signature = EncodedSignature::decode(&signature)
                             .map_err(Error::MalformedSignature)?;
@@ -138,29 +141,22 @@ impl Service {
                             .verify(challenge.as_bytes(), &signature)
                             .map_err(Error::InvalidSignature)?;
 
-                        let purpose = token::Purpose::Authentication;
-                        let now = Utc::now();
-                        let expires_on = now + purpose.duration();
+                        let account_token =
+                            create_token(&key_pair, &account, role, token::Purpose::Account)?;
+                        let api_token =
+                            create_token(&key_pair, &account, role, token::Purpose::Api)?;
 
-                        let token = Token::new(token::Payload {
-                            // TODO: How should we set these?
-                            aud: account.id.to_string(),
-                            exp: expires_on.timestamp(),
-                            iat: now.timestamp(),
-                            iss: role.service_name().to_string(),
-                            sub: account.id.to_string(),
-                            purpose,
-                            account_id: account.id,
-                            account_type: account.kind,
-                        })
-                        .sign(&key_pair)
-                        .map_err(Error::SignToken)?;
-
-                        debug!("Login successful for {}, issued token {token}", account.id);
+                        debug!(
+                            "Authenticate successful for {}, issued account_token {account_token}, api_token: {api_token}",
+                            account.id
+                        );
 
                         Ok(Some((
-                            LoginResponse {
-                                body: Some(login_response::Body::Token(token)),
+                            AuthenticateResponse {
+                                body: Some(authenticate_response::Body::Tokens(TokenResponse {
+                                    account_token,
+                                    api_token,
+                                })),
                             },
                             (incoming, State::Finished),
                         )))
@@ -174,21 +170,32 @@ impl Service {
 
 #[tonic::async_trait]
 impl AccountService for Service {
-    type LoginStream = BoxStream<'static, Result<LoginResponse, tonic::Status>>;
+    type AuthenticateStream = BoxStream<'static, Result<AuthenticateResponse, tonic::Status>>;
 
-    async fn login(
+    async fn authenticate(
         &self,
-        request: tonic::Request<tonic::Streaming<LoginRequest>>,
-    ) -> Result<tonic::Response<Self::LoginStream>, tonic::Status> {
+        request: tonic::Request<tonic::Streaming<AuthenticateRequest>>,
+    ) -> Result<tonic::Response<Self::AuthenticateStream>, tonic::Status> {
         Ok(tonic::Response::new(
-            self.login(request)
+            self.authenticate(request)
                 .map(|result| log_handler(result).map(tonic::Response::into_inner))
                 .boxed(),
         ))
     }
+
+    async fn refresh_token(
+        &self,
+        _request: tonic::Request<RefreshTokenRequest>,
+    ) -> Result<tonic::Response<TokenResponse>, tonic::Status> {
+        todo!();
+    }
 }
 
-pub async fn login(uri: Uri, username: String, key_pair: KeyPair) -> Result<String, ClientError> {
+pub async fn authenticate(
+    uri: Uri,
+    username: String,
+    key_pair: KeyPair,
+) -> Result<TokenResponse, ClientError> {
     let mut client = Client::connect(uri).await?;
 
     let (request_tx, request_rx) = mpsc::channel(1);
@@ -198,8 +205,8 @@ pub async fn login(uri: Uri, username: String, key_pair: KeyPair) -> Result<Stri
 
     tokio::spawn(async move {
         let _ = request_tx
-            .send(LoginRequest {
-                body: Some(login_request::Body::Credentials(Credentials {
+            .send(AuthenticateRequest {
+                body: Some(authenticate_request::Body::Credentials(Credentials {
                     username,
                     public_key: key_pair.public_key().encode().to_string(),
                 })),
@@ -214,15 +221,15 @@ pub async fn login(uri: Uri, username: String, key_pair: KeyPair) -> Result<Stri
             .encode(key_pair.sign(challenge.as_bytes()).to_bytes());
 
         let _ = request_tx
-            .send(LoginRequest {
-                body: Some(login_request::Body::Signature(signature)),
+            .send(AuthenticateRequest {
+                body: Some(authenticate_request::Body::Signature(signature)),
             })
             .await;
     });
 
-    let mut resp = client.login(request).await?.into_inner();
+    let mut resp = client.authenticate(request).await?.into_inner();
 
-    let Some(login_response::Body::Challenge(challenge)) =
+    let Some(authenticate_response::Body::Challenge(challenge)) =
         resp.next().await.ok_or(ClientError::StreamClosed)??.body
     else {
         return Err(ClientError::MalformedRequest);
@@ -230,13 +237,37 @@ pub async fn login(uri: Uri, username: String, key_pair: KeyPair) -> Result<Stri
 
     let _ = challenge_tx.send(challenge).await;
 
-    let Some(login_response::Body::Token(token)) =
+    let Some(authenticate_response::Body::Tokens(tokens)) =
         resp.next().await.ok_or(ClientError::StreamClosed)??.body
     else {
         return Err(ClientError::MalformedRequest);
     };
 
-    Ok(token)
+    Ok(tokens)
+}
+
+fn create_token(
+    key_pair: &KeyPair,
+    account: &Account,
+    role: Role,
+    purpose: token::Purpose,
+) -> Result<String, Error> {
+    let now = Utc::now();
+    let expires_on = now + purpose.duration();
+
+    Token::new(token::Payload {
+        // TODO: How should we set these?
+        aud: account.id.to_string(),
+        exp: expires_on.timestamp(),
+        iat: now.timestamp(),
+        iss: role.service_name().to_string(),
+        sub: account.id.to_string(),
+        purpose,
+        account_id: account.id,
+        account_type: account.kind,
+    })
+    .sign(key_pair)
+    .map_err(Error::SignToken)
 }
 
 #[derive(Debug, Error)]

@@ -152,7 +152,7 @@ impl Endpoint {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Tokens {
-    pub bearer_token: Option<String>,
+    pub account_token: Option<String>,
     pub api_token: Option<String>,
 }
 
@@ -162,12 +162,12 @@ impl Tokens {
             "
             UPDATE endpoint
             SET
-              bearer_token = ?,
+              account_token = ?,
               api_token = ?
             WHERE endpoint_id = ?;
             ",
         )
-        .bind(&self.bearer_token)
+        .bind(&self.account_token)
         .bind(&self.api_token)
         .bind(id.0)
         .execute(&db.pool)
@@ -180,7 +180,7 @@ impl Tokens {
         let tokens: Tokens = sqlx::query_as(
             "
             SELECT
-              bearer_token,
+              account_token,
               api_token
             FROM endpoint
             WHERE endpoint_id = ?;
@@ -285,17 +285,17 @@ mod proto {
 
     include_proto!("endpoint");
 
-    impl From<EnrollmentRole> for Role {
-        fn from(role: EnrollmentRole) -> Self {
+    impl From<EndpointRole> for Role {
+        fn from(role: EndpointRole) -> Self {
             match role {
-                EnrollmentRole::Builder => Self::Builder,
-                EnrollmentRole::RepositoryManager => Self::RepositoryManager,
-                EnrollmentRole::Hub => Self::Hub,
+                EndpointRole::Builder => Self::Builder,
+                EndpointRole::RepositoryManager => Self::RepositoryManager,
+                EndpointRole::Hub => Self::Hub,
             }
         }
     }
 
-    impl From<Role> for EnrollmentRole {
+    impl From<Role> for EndpointRole {
         fn from(role: Role) -> Self {
             match role {
                 Role::Builder => Self::Builder,

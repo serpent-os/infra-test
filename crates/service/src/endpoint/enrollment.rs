@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::{
-    proto::{self, EnrollmentRequest, EnrollmentRole},
+    proto::{self, EndpointRole, EnrollmentRequest},
     service,
 };
 use crate::{
-    account::{self, BearerToken},
+    account,
     crypto::{EncodedPublicKey, KeyPair, PublicKey},
     database, endpoint,
     sync::SharedMap,
@@ -43,7 +43,7 @@ impl From<Issuer> for proto::Issuer {
         proto::Issuer {
             public_key: key_pair.public_key().encode().to_string(),
             url: host_address.to_string(),
-            role: EnrollmentRole::from(role) as i32,
+            role: EndpointRole::from(role) as i32,
             admin_name,
             admin_email,
             description,
@@ -76,13 +76,13 @@ impl Enrollment {
         let endpoint = endpoint::Id::generate();
         let account = account::Id::generate();
 
-        let bearer_token = create_bearer_token(endpoint, account, target.role, &ourself)?;
+        let account_token = create_account_token(endpoint, account, target.role, &ourself)?;
 
         let enrollment = Enrollment {
             endpoint,
             account,
             target,
-            token: bearer_token.clone(),
+            token: account_token.clone(),
         };
 
         let mut client = service::Client::connect(enrollment.target.host_address.clone()).await?;
@@ -90,8 +90,8 @@ impl Enrollment {
         let resp = client
             .enroll(EnrollmentRequest {
                 issuer: Some(ourself.into()),
-                issue_token: bearer_token.encoded,
-                role: EnrollmentRole::from(enrollment.target.role) as i32,
+                account_token: account_token.encoded,
+                role: EndpointRole::from(enrollment.target.role) as i32,
             })
             .await;
 
@@ -146,30 +146,30 @@ impl Enrollment {
         endpoint.save(db).await.map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
-            bearer_token: Some(self.token.encoded.clone()),
+            account_token: Some(self.token.encoded.clone()),
             api_token: None,
         }
         .save(db, endpoint.id)
         .await
-        .map_err(Error::SetEndpointBearerToken)?;
+        .map_err(Error::SetEndpointAccountToken)?;
 
         info!("Created a new endpoint {endpoint_id} associated to {username}");
 
-        let bearer_token =
-            create_bearer_token(endpoint_id, account_id, self.target.role, &ourself)?;
+        let account_token =
+            create_account_token(endpoint_id, account_id, self.target.role, &ourself)?;
 
-        BearerToken::set(
+        account::Token::set(
             db,
             account_id,
-            &bearer_token.encoded,
-            bearer_token.expires(),
+            &account_token.encoded,
+            account_token.expires(),
         )
         .await
-        .map_err(Error::SetAccountBearerToken)?;
+        .map_err(Error::SetAccountToken)?;
 
         info!(
-            "Bearer token created for {account_id}, expires on {}",
-            bearer_token.expires()
+            "Account token created for {account_id}, expires on {}",
+            account_token.expires()
         );
 
         let mut client =
@@ -178,8 +178,8 @@ impl Enrollment {
         let resp = client
             .accept(EnrollmentRequest {
                 issuer: Some(ourself.into()),
-                issue_token: bearer_token.encoded,
-                role: EnrollmentRole::from(self.target.role) as i32,
+                account_token: account_token.encoded,
+                role: EndpointRole::from(self.target.role) as i32,
             })
             .await;
 
@@ -223,7 +223,7 @@ impl Enrollment {
         &self,
         db: &Database,
         public_key: &PublicKey,
-        bearer_token: String,
+        account_token: String,
     ) -> Result<(), Error> {
         if *public_key != self.target.public_key {
             return Err(Error::PublicKeyMismatch {
@@ -263,21 +263,21 @@ impl Enrollment {
         .map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
-            bearer_token: Some(bearer_token),
+            account_token: Some(account_token),
             api_token: None,
         }
         .save(db, endpoint)
         .await
-        .map_err(Error::SetEndpointBearerToken)?;
+        .map_err(Error::SetEndpointAccountToken)?;
 
         info!("Created a new endpoint {endpoint} associated to {username}");
 
-        BearerToken::set(db, self.account, &self.token.encoded, self.token.expires())
+        account::Token::set(db, self.account, &self.token.encoded, self.token.expires())
             .await
-            .map_err(Error::SetAccountBearerToken)?;
+            .map_err(Error::SetAccountToken)?;
 
         info!(
-            "Bearer token created for {account}, expires on {}",
+            "Account token created for {account}, expires on {}",
             self.token.expires()
         );
 
@@ -287,13 +287,13 @@ impl Enrollment {
     }
 }
 
-fn create_bearer_token(
+fn create_account_token(
     endpoint: endpoint::Id,
     account: account::Id,
     role: Role,
     ourself: &Issuer,
 ) -> Result<VerifiedToken, Error> {
-    let purpose = token::Purpose::Authorization;
+    let purpose = token::Purpose::Account;
     let now = Utc::now();
     let expires_on = now + purpose.duration();
 
@@ -307,10 +307,10 @@ fn create_bearer_token(
         account_id: account,
         account_type: account::Kind::Service,
     });
-    let issue_token = token.sign(&ourself.key_pair)?;
+    let account_token = token.sign(&ourself.key_pair)?;
 
     Ok(VerifiedToken {
-        encoded: issue_token,
+        encoded: account_token,
         decoded: token,
     })
 }
@@ -323,10 +323,10 @@ pub enum Error {
     CreateServiceAccount(#[source] account::Error),
     #[error("create endpoint")]
     CreateEndpoint(#[source] database::Error),
-    #[error("set endpoint bearer token")]
-    SetEndpointBearerToken(#[source] database::Error),
-    #[error("set account bearer token")]
-    SetAccountBearerToken(#[source] account::Error),
+    #[error("set endpoint account token")]
+    SetEndpointAccountToken(#[source] database::Error),
+    #[error("set account token")]
+    SetAccountToken(#[source] account::Error),
     #[error("update endpoint status")]
     UpdateEndpointStatus(#[source] database::Error),
     #[error("public key mismatch, expected {expected} got {actual}")]

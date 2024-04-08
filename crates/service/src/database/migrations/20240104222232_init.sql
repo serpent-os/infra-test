@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS account (
     public_key TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS bearer_token (
+CREATE TABLE IF NOT EXISTS account_token (
     account_id TEXT NOT NULL UNIQUE, 
     encoded TEXT NOT NULL,
     expiration BIGINT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS endpoint (
     host_address TEXT NOT NULL,
     status TEXT NOT NULL,
     error TEXT,
-    bearer_token TEXT,
+    account_token TEXT,
     api_token TEXT,
     account_id TEXT NOT NULL UNIQUE, 
     role TEXT NOT NULL,

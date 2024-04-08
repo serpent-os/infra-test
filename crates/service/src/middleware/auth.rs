@@ -18,12 +18,15 @@ pub fn auth<T>(req: &tonic::Request<T>, validation_flags: Flags) -> Result<(), t
     let token_names = flag_names(request_flags);
 
     // If token flags wholy contains all validation flags,
-    // then user is properly authenticated
+    // then user is properly authorized
     if request_flags.contains(validation_flags) {
         Ok(())
+    } else if request_flags == Flags::NO_AUTH {
+        warn!("unauthenticated, expected {validation_names:?} got {token_names:?}");
+        Err(tonic::Status::unauthenticated("unauthenticated"))
     } else {
-        warn!("authentication failed, expected {validation_names:?} got {token_names:?}");
-        Err(tonic::Status::unauthenticated("authentication failed"))
+        warn!("permission denied, expected {validation_names:?} got {token_names:?}");
+        Err(tonic::Status::permission_denied("permission denied"))
     }
 }
 
@@ -39,11 +42,11 @@ pub struct Auth {
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy, Default)]
+    #[derive(Debug, Clone, Copy,PartialEq, Eq, Default)]
     pub struct Flags : u16 {
         const NO_AUTH = 0;
-        const BEARER_TOKEN = 1 << 0;
-        const ACCESS_TOKEN = 1 << 1;
+        const ACCOUNT_TOKEN = 1 << 0;
+        const API_TOKEN = 1 << 1;
         const SERVICE_ACCOUNT = 1 << 2;
         const BOT_ACCOUNT = 1 << 3;
         const USER_ACCOUNT = 1 << 4;
@@ -106,8 +109,8 @@ where
             req.extensions_mut().insert(token.clone());
 
             match token.decoded.payload.purpose {
-                token::Purpose::Authorization => flags |= Flags::BEARER_TOKEN,
-                token::Purpose::Authentication => flags |= Flags::ACCESS_TOKEN,
+                token::Purpose::Account => flags |= Flags::ACCOUNT_TOKEN,
+                token::Purpose::Api => flags |= Flags::API_TOKEN,
             }
 
             match token.decoded.payload.account_type {

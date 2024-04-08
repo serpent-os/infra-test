@@ -4,7 +4,6 @@ use http::{Request, Response};
 use thiserror::Error;
 use tonic::{
     body::BoxBody,
-    service::interceptor::InterceptorLayer,
     transport::{self, server::Routes, Body, NamedService},
 };
 use tower::{
@@ -23,10 +22,7 @@ pub async fn start<T>(
     Server::new(role, config, state).start(bind).await
 }
 
-pub type DefaultMiddleware = Stack<
-    middleware::Auth,
-    Stack<middleware::Log, Stack<InterceptorLayer<middleware::Extensions>, Identity>>,
->;
+pub type DefaultMiddleware = Stack<middleware::Auth, Stack<middleware::Log, Identity>>;
 
 pub struct Server<T, L> {
     router: transport::server::Router<L>,
@@ -38,6 +34,8 @@ impl<T> Server<T, DefaultMiddleware> {
     pub fn new(role: Role, config: Config<T>, state: State) -> Self {
         let endpoint_service = endpoint::Server::new(endpoint::Service {
             issuer: config.issuer(role, state.key_pair.clone()),
+            db: state.db.clone(),
+            pending_enrollment: state.pending_enrollment.clone(),
         });
         let account_service = account::Server::new(account::Service {
             db: state.db.clone(),
@@ -45,10 +43,6 @@ impl<T> Server<T, DefaultMiddleware> {
             role,
         });
         let router = tonic::transport::Server::builder()
-            .layer(tonic::service::interceptor(middleware::Extensions {
-                db: state.db.clone(),
-                pending_enrollment: state.pending_enrollment.clone(),
-            }))
             .layer(middleware::Log)
             .layer(middleware::Auth {
                 pub_key: state.key_pair.public_key(),
