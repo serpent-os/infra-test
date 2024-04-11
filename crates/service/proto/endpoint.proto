@@ -49,12 +49,11 @@ message EndpointArray {
 }
 
 service EndpointService {
+  // Enrollment functions
   rpc Enroll(EnrollmentRequest) returns (google.protobuf.Empty) {}
   rpc Accept(EnrollmentRequest) returns (google.protobuf.Empty) {}
   rpc Decline(google.protobuf.Empty) returns (google.protobuf.Empty) {}
   rpc Leave(google.protobuf.Empty) returns (google.protobuf.Empty) {}
-
-  rpc Visible(google.protobuf.Empty) returns (EndpointArray) {}
 
   // Admin functions
   rpc Pending(google.protobuf.Empty) returns (EndpointArray) {}

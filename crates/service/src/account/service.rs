@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use base64::Engine;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::{
     stream::{self, BoxStream},
     Stream, StreamExt,
@@ -17,14 +17,15 @@ use tonic::transport;
 use crate::{
     account,
     crypto::{self, EncodedPublicKey, EncodedSignature, KeyPair, PublicKey},
-    middleware::log_handler,
-    token, Account, Database, Role, Token,
+    middleware::{auth, log_handler},
+    token::{self, VerifiedToken},
+    Account, Database, Role, Token,
 };
 
 pub use super::proto::TokenResponse;
 use super::proto::{
     self, account_service_server::AccountService, authenticate_request, authenticate_response,
-    AuthenticateRequest, AuthenticateResponse, Credentials, RefreshTokenRequest,
+    AuthenticateRequest, AuthenticateResponse, Credentials,
 };
 
 pub type Server = proto::account_service_server::AccountServiceServer<Service>;
@@ -49,6 +50,7 @@ impl Service {
                 role: Role,
             },
             ChallengeSent {
+                db: Database,
                 key_pair: KeyPair,
                 role: Role,
                 account: Account,
@@ -115,6 +117,7 @@ impl Service {
                             (
                                 incoming,
                                 State::ChallengeSent {
+                                    db,
                                     key_pair,
                                     role,
                                     account,
@@ -126,6 +129,7 @@ impl Service {
                     }
                     (
                         State::ChallengeSent {
+                            db,
                             key_pair,
                             role,
                             account,
@@ -141,10 +145,14 @@ impl Service {
                             .verify(challenge.as_bytes(), &signature)
                             .map_err(Error::InvalidSignature)?;
 
-                        let account_token =
+                        let (account_token, expires_on) =
                             create_token(&key_pair, &account, role, token::Purpose::Account)?;
-                        let api_token =
+                        let (api_token, _) =
                             create_token(&key_pair, &account, role, token::Purpose::Api)?;
+
+                        account::Token::set(&db, account.id, &account_token, expires_on)
+                            .await
+                            .map_err(Error::SaveAccountToken)?;
 
                         debug!(
                             "Authenticate successful for {}, issued account_token {account_token}, api_token: {api_token}",
@@ -166,6 +174,52 @@ impl Service {
             },
         )
     }
+
+    async fn refresh_token(&self, request: tonic::Request<()>) -> Result<TokenResponse, Error> {
+        let request_token = request
+            .extensions()
+            .get::<VerifiedToken>()
+            .cloned()
+            .ok_or(Error::MissingRequestToken)?;
+
+        let token::Payload { account_id, .. } = request_token.decoded.payload;
+
+        let account = Account::get(&self.db, account_id)
+            .await
+            .map_err(Error::ReadAccount)?;
+
+        // Confirm this is their current account token
+        let current_token = account::Token::get(&self.db, account_id)
+            .await
+            .map_err(Error::ReadAccountToken)?;
+
+        if current_token.encoded != request_token.encoded {
+            return Err(Error::NotCurrentAccountToken);
+        }
+
+        // We've already validated it's not expired in auth middleware
+        // Looks good! Let's issue a new pair
+
+        let (account_token, expires_on) =
+            create_token(&self.key_pair, &account, self.role, token::Purpose::Account)?;
+        let (api_token, _) =
+            create_token(&self.key_pair, &account, self.role, token::Purpose::Api)?;
+
+        // Update their account token to the newly issued one
+        account::Token::set(&self.db, account_id, &account_token, expires_on)
+            .await
+            .map_err(Error::SaveAccountToken)?;
+
+        debug!(
+            "Refresh token successful for {}, issued account_token {account_token}, api_token: {api_token}",
+            account.id
+        );
+
+        Ok(TokenResponse {
+            account_token,
+            api_token,
+        })
+    }
 }
 
 #[tonic::async_trait]
@@ -176,6 +230,9 @@ impl AccountService for Service {
         &self,
         request: tonic::Request<tonic::Streaming<AuthenticateRequest>>,
     ) -> Result<tonic::Response<Self::AuthenticateStream>, tonic::Status> {
+        // Technically the same as ommitting this check
+        auth(&request, auth::Flags::NO_AUTH)?;
+
         Ok(tonic::Response::new(
             self.authenticate(request)
                 .map(|result| log_handler(result).map(tonic::Response::into_inner))
@@ -185,9 +242,15 @@ impl AccountService for Service {
 
     async fn refresh_token(
         &self,
-        _request: tonic::Request<RefreshTokenRequest>,
+        request: tonic::Request<()>,
     ) -> Result<tonic::Response<TokenResponse>, tonic::Status> {
-        todo!();
+        // Must have a non-expired account token
+        auth(
+            &request,
+            auth::Flags::ACCOUNT_TOKEN | auth::Flags::NOT_EXPIRED,
+        )?;
+
+        log_handler(self.refresh_token(request).await)
     }
 }
 
@@ -251,11 +314,11 @@ fn create_token(
     account: &Account,
     role: Role,
     purpose: token::Purpose,
-) -> Result<String, Error> {
+) -> Result<(String, DateTime<Utc>), Error> {
     let now = Utc::now();
     let expires_on = now + purpose.duration();
 
-    Token::new(token::Payload {
+    let token = Token::new(token::Payload {
         // TODO: How should we set these?
         aud: account.id.to_string(),
         exp: expires_on.timestamp(),
@@ -267,11 +330,19 @@ fn create_token(
         account_type: account.kind,
     })
     .sign(key_pair)
-    .map_err(Error::SignToken)
+    .map_err(Error::SignToken)?;
+
+    Ok((token, expires_on))
 }
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Account not issued an account token")]
+    NoIssuedAccountToken,
+    #[error("Request token doesn't match current account token")]
+    NotCurrentAccountToken,
+    #[error("Token missing from request")]
+    MissingRequestToken,
     #[error("Malformed request")]
     MalformedRequest,
     #[error("malformed public key")]
@@ -280,6 +351,13 @@ pub enum Error {
     MalformedSignature(#[source] crypto::Error),
     #[error("signature verification")]
     InvalidSignature(#[source] crypto::Error),
+    #[error("saving new account token")]
+    SaveAccountToken(#[source] account::Error),
+    #[error("reading account token")]
+    ReadAccountToken(#[source] account::Error),
+    #[error("reading account")]
+    ReadAccount(#[source] account::Error),
+    // TODO: slog so we don't have to keep decorating shit for our errors
     #[error("account lookup for username {0}, public_key {1}")]
     AccountLookup(String, EncodedPublicKey, #[source] account::Error),
     #[error("sign token")]
@@ -291,8 +369,14 @@ pub enum Error {
 impl From<Error> for tonic::Status {
     fn from(error: Error) -> Self {
         let mut status = match &error {
+            Error::NoIssuedAccountToken => tonic::Status::unauthenticated(""),
+            Error::NotCurrentAccountToken => tonic::Status::unauthenticated(""),
+            Error::MissingRequestToken => tonic::Status::internal(""),
             Error::MalformedRequest => tonic::Status::internal(""),
             Error::SignToken(_) => tonic::Status::internal(""),
+            Error::SaveAccountToken(_) => tonic::Status::internal(""),
+            Error::ReadAccountToken(_) => tonic::Status::internal(""),
+            Error::ReadAccount(_) => tonic::Status::internal(""),
             Error::MalformedPublicKey(_) => tonic::Status::invalid_argument("malformed public key"),
             Error::MalformedSignature(_) => tonic::Status::invalid_argument("malformed signature"),
             Error::InvalidSignature(_) => tonic::Status::unauthenticated(""),

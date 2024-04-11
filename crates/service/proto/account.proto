@@ -23,10 +23,6 @@ message AuthenticateResponse {
   }
 }
 
-message RefreshTokenRequest {
-  string account_token = 1;
-}
-
 message TokenResponse {
   string account_token = 1;
   string api_token = 2;
@@ -34,5 +30,5 @@ message TokenResponse {
 
 service AccountService {
   rpc Authenticate(stream AuthenticateRequest) returns (stream AuthenticateResponse) {}
-  rpc RefreshToken(RefreshTokenRequest) returns (TokenResponse) {}
+  rpc RefreshToken(google.protobuf.Empty) returns (TokenResponse) {}
 }

@@ -22,7 +22,7 @@ use crate::{
     Database, Token,
 };
 
-const SERVICE_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
+const ENROLLMENT_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
     auth::Flags::NOT_EXPIRED.bits()
         | auth::Flags::ACCOUNT_TOKEN.bits()
         | auth::Flags::SERVICE_ACCOUNT.bits(),
@@ -258,7 +258,7 @@ impl EndpointService for Service {
         &self,
         request: tonic::Request<EnrollmentRequest>,
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, SERVICE_FLAGS)?;
+        auth(&request, ENROLLMENT_FLAGS)?;
 
         if !matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.accept(request).await)
@@ -273,7 +273,7 @@ impl EndpointService for Service {
         &self,
         request: tonic::Request<()>,
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, SERVICE_FLAGS)?;
+        auth(&request, ENROLLMENT_FLAGS)?;
 
         if !matches!(self.role(), EndpointRole::Hub) {
             log_handler(self.decline(request).await)
@@ -288,7 +288,7 @@ impl EndpointService for Service {
         &self,
         request: tonic::Request<()>,
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, SERVICE_FLAGS)?;
+        auth(&request, ENROLLMENT_FLAGS)?;
 
         if !matches!(self.role(), EndpointRole::Hub) {
             Err(tonic::Status::unimplemented("unimplemented"))
@@ -298,15 +298,6 @@ impl EndpointService for Service {
                 self.role()
             )))
         }
-    }
-
-    async fn visible(
-        &self,
-        request: tonic::Request<()>,
-    ) -> std::result::Result<tonic::Response<EndpointArray>, tonic::Status> {
-        auth(&request, SERVICE_FLAGS)?;
-
-        Err(tonic::Status::unimplemented("unimplemented"))
     }
 
     async fn pending(
