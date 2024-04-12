@@ -4,7 +4,7 @@ use http::Uri;
 use serde::Deserialize;
 use tokio::fs;
 
-use crate::{account::Admin, crypto::KeyPair, endpoint::enrollment::Issuer, Role};
+use crate::{account::Admin, crypto::KeyPair, endpoint::enrollment::Issuer, tracing, Role};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config<T> {
@@ -12,7 +12,8 @@ pub struct Config<T> {
     pub host_address: Uri,
     pub description: String,
     pub admin: Admin,
-    pub log_level: Option<String>,
+    #[serde(default)]
+    pub tracing: tracing::Config,
     #[serde(flatten)]
     pub domain: T,
 }

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use http::Uri;
-use log::{error, info};
 use thiserror::Error;
 use tonic::{
     service::{interceptor::InterceptedService, Interceptor},
     transport::Channel,
 };
+use tracing::{debug, error, info};
 
 use super::enrollment::{self, Issuer};
 use super::proto::{
@@ -19,7 +19,7 @@ use crate::{
     endpoint::{self, enrollment::PendingEnrollment, Enrollment},
     middleware::{auth, log_handler},
     token::{self, VerifiedToken},
-    Database, Token,
+    Database, Role, Token,
 };
 
 const ENROLLMENT_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
@@ -73,10 +73,18 @@ impl Service {
             });
         }
 
-        info!("Got an enrollment request: {request:?}");
+        info!(
+            public_key = issuer.public_key,
+            url = issuer.url,
+            role = %Role::from(issuer.role()),
+            email = issuer.admin_email,
+            "Enrollment requested"
+        );
 
         let endpoint = endpoint::Id::generate();
         let account = account::Id::generate();
+
+        debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
         self.pending_enrollment
             .insert(
@@ -139,7 +147,14 @@ impl Service {
             .parse::<endpoint::Id>()
             .map_err(Error::InvalidEndpoint)?;
 
-        info!("Got an enrollment acceptance for endpoint {endpoint}: {request:?}");
+        info!(
+            %endpoint,
+            public_key = issuer.public_key,
+            url = issuer.url,
+            role = %Role::from(issuer.role()),
+            email = issuer.admin_email,
+            "Enrollment accepted"
+        );
 
         self.pending_enrollment
             .remove(&endpoint)
@@ -165,9 +180,16 @@ impl Service {
             .parse::<endpoint::Id>()
             .map_err(Error::InvalidEndpoint)?;
 
-        info!("Endpoint enrollment declined for {endpoint}");
-
-        self.pending_enrollment.remove(&endpoint).await;
+        if let Some(enrollment) = self.pending_enrollment.remove(&endpoint).await {
+            info!(
+                %endpoint,
+                public_key = %enrollment.target.public_key,
+                url = %enrollment.target.host_address,
+                role = %enrollment.target.role,
+                email = enrollment.target.admin_email,
+                "Enrollment declined"
+            );
+        }
 
         Ok(())
     }
@@ -204,7 +226,14 @@ impl Service {
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
 
-        info!("Accepting pending enrollment for endpoint {endpoint}");
+        info!(
+            %endpoint,
+            public_key = %enrollment.target.public_key,
+            url = %enrollment.target.host_address,
+            role = %enrollment.target.role,
+            email = enrollment.target.admin_email,
+            "Pending enrollment accepted"
+        );
 
         enrollment
             .accept(&self.db, self.issuer.clone())
@@ -227,7 +256,14 @@ impl Service {
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
 
-        info!("Declining pending enrollment for endpoint {endpoint}");
+        info!(
+            %endpoint,
+            public_key = %enrollment.target.public_key,
+            url = %enrollment.target.host_address,
+            role = %enrollment.target.role,
+            email = enrollment.target.admin_email,
+            "Pending enrollment declined"
+        );
 
         enrollment.decline().await.map_err(Error::Enrollment)?;
 
@@ -237,6 +273,7 @@ impl Service {
 
 #[tonic::async_trait]
 impl EndpointService for Service {
+    #[tracing::instrument(skip_all)]
     async fn enroll(
         &self,
         request: tonic::Request<EnrollmentRequest>,
@@ -254,6 +291,7 @@ impl EndpointService for Service {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn accept(
         &self,
         request: tonic::Request<EnrollmentRequest>,
@@ -269,6 +307,8 @@ impl EndpointService for Service {
             )))
         }
     }
+
+    #[tracing::instrument(skip_all)]
     async fn decline(
         &self,
         request: tonic::Request<()>,
@@ -284,6 +324,8 @@ impl EndpointService for Service {
             )))
         }
     }
+
+    #[tracing::instrument(skip_all)]
     async fn leave(
         &self,
         request: tonic::Request<()>,
@@ -300,6 +342,7 @@ impl EndpointService for Service {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn pending(
         &self,
         request: tonic::Request<()>,
@@ -316,6 +359,7 @@ impl EndpointService for Service {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn accept_pending(
         &self,
         request: tonic::Request<EndpointId>,
@@ -332,6 +376,7 @@ impl EndpointService for Service {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn decline_pending(
         &self,
         request: tonic::Request<EndpointId>,

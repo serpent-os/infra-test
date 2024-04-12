@@ -1,6 +1,6 @@
 use bitflags::bitflags;
-use log::warn;
 use tonic::{body::BoxBody, transport::Body};
+use tracing::{debug, warn};
 
 use crate::{
     account,
@@ -10,8 +10,6 @@ use crate::{
 };
 
 pub fn auth<T>(req: &tonic::Request<T>, validation_flags: Flags) -> Result<(), tonic::Status> {
-    let flag_names = |flags: Flags| flags.iter_names().map(|(name, _)| name).collect::<Vec<_>>();
-
     let request_flags = req.extensions().get::<Flags>().copied().unwrap_or_default();
 
     let validation_names = flag_names(validation_flags);
@@ -22,10 +20,10 @@ pub fn auth<T>(req: &tonic::Request<T>, validation_flags: Flags) -> Result<(), t
     if request_flags.contains(validation_flags) {
         Ok(())
     } else if request_flags == Flags::NO_AUTH {
-        warn!("unauthenticated, expected {validation_names:?} got {token_names:?}");
+        warn!(expected = ?validation_names, received = ?token_names, "unauthenticated");
         Err(tonic::Status::unauthenticated("unauthenticated"))
     } else {
-        warn!("permission denied, expected {validation_names:?} got {token_names:?}");
+        warn!(expected = ?validation_names, received = ?token_names, "permission denied");
         Err(tonic::Status::permission_denied("permission denied"))
     }
 }
@@ -125,6 +123,16 @@ where
             } else {
                 flags |= Flags::NOT_EXPIRED
             }
+
+            let token_flags = flag_names(flags);
+            let token_purpose = Some(token.decoded.payload.purpose.to_string());
+            let account = Some(token.decoded.payload.account_id.to_string());
+            let account_type = Some(token.decoded.payload.account_type.to_string());
+
+            debug!(
+                ?token_flags,
+                token_purpose, account, account_type, "Auth parsed"
+            );
         }
 
         req.extensions_mut().insert(flags);
@@ -144,8 +152,15 @@ fn extract_token(
     match Token::verify(token_str, pub_key, validation) {
         Ok(token) => Some(token),
         Err(error) => {
-            warn!("Invalid authorization token: {error}");
+            warn!(%error, "Invalid authorization token");
             None
         }
     }
+}
+
+fn flag_names(flags: Flags) -> Vec<String> {
+    flags
+        .iter_names()
+        .map(|(name, _)| name.to_string())
+        .collect()
 }

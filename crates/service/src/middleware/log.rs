@@ -1,8 +1,8 @@
 use futures::{future::BoxFuture, FutureExt};
 use itertools::Itertools;
-use log::{debug, error};
 use tonic::{body::BoxBody, transport::Body};
 use tower::BoxError;
+use tracing::{debug, error, info_span, Instrument};
 
 pub fn log_handler<T, E>(result: Result<T, E>) -> Result<tonic::Response<T>, tonic::Status>
 where
@@ -20,7 +20,8 @@ where
                 chain.push(cause.to_string());
                 source = cause.source();
             }
-            error!("Handler error: {}", chain.into_iter().join(": "));
+            let error = chain.into_iter().join(": ");
+            error!(%error, "Handler error");
 
             Err(err.into())
         }
@@ -69,18 +70,21 @@ where
         let clone = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, clone);
 
+        let path = req.uri().path().to_string();
+
         async move {
-            debug!("Request received: {req:?}");
+            debug!("Request received");
 
             match inner.call(req).await {
                 Ok(resp) => {
-                    debug!("Response: {resp:?}");
+                    debug!(status = %resp.status(), "Sending response");
                     Ok(resp)
                 }
                 // Infallible
                 Err(e) => Err(e),
             }
         }
+        .instrument(info_span!("grpc", path))
         .boxed()
     }
 }

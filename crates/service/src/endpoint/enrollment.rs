@@ -1,8 +1,8 @@
 use chrono::Utc;
 use http::Uri;
-use log::info;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{debug, info};
 
 use super::{
     proto::{self, EndpointRole, EnrollmentRequest},
@@ -72,9 +72,21 @@ pub struct Enrollment {
 
 impl Enrollment {
     /// Create and send the enrollment
+    #[tracing::instrument(
+        name = "send_enrollment", 
+        skip_all,
+        fields(
+            public_key = %target.public_key,
+            url = %target.host_address,
+            role = %target.role,
+            email = target.admin_email,
+        )
+    )]
     pub async fn send(target: Target, ourself: Issuer) -> Result<Self, Error> {
         let endpoint = endpoint::Id::generate();
         let account = account::Id::generate();
+
+        debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
         let account_token = create_account_token(endpoint, account, target.role, &ourself)?;
 
@@ -97,7 +109,15 @@ impl Enrollment {
 
         match resp {
             Ok(_) => {
-                info!("Enrollment request sent for endpoint {endpoint}");
+                info!(
+                    %endpoint,
+                    %account,
+                    public_key = %enrollment.target.public_key,
+                    url = %enrollment.target.host_address,
+                    role = %enrollment.target.role,
+                    email = enrollment.target.admin_email,
+                    "Enrollment request sent"
+                );
 
                 Ok(enrollment)
             }
@@ -106,6 +126,18 @@ impl Enrollment {
     }
 
     /// Accept the enrollment from the receiving side
+    #[tracing::instrument(
+        name = "accept_enrollment",
+        skip_all,
+        fields(
+            endpoint = %self.endpoint,
+            account = %self.account,
+            public_key = %self.target.public_key,
+            url = %self.target.host_address,
+            role = %self.target.role,
+            email = self.target.admin_email,
+        )
+    )]
     pub async fn accept(self, db: &Database, ourself: Issuer) -> Result<(), Error> {
         let account_id = self.account;
         let username = format!("@{account_id}");
@@ -121,7 +153,7 @@ impl Enrollment {
         .await
         .map_err(Error::CreateServiceAccount)?;
 
-        info!("Created a new service account {account_id}");
+        info!(username, "Created a new service account");
 
         let endpoint_id = self.endpoint;
         let kind = match self.target.role {
@@ -153,7 +185,7 @@ impl Enrollment {
         .await
         .map_err(Error::SetEndpointAccountToken)?;
 
-        info!("Created a new endpoint {endpoint_id} associated to {username}");
+        info!("Created a new endpoint for the service account");
 
         let account_token =
             create_account_token(endpoint_id, account_id, self.target.role, &ourself)?;
@@ -168,8 +200,8 @@ impl Enrollment {
         .map_err(Error::SetAccountToken)?;
 
         info!(
-            "Account token created for {account_id}, expires on {}",
-            account_token.expires()
+            expiration = %account_token.expires(),
+            "Account token created",
         );
 
         let mut client =
@@ -191,7 +223,7 @@ impl Enrollment {
                     .await
                     .map_err(Error::UpdateEndpointStatus)?;
 
-                info!("Accepted endpoint {endpoint_id}, now operational");
+                info!("Accepted endpoint now operational");
 
                 Ok(())
             }
@@ -219,6 +251,18 @@ impl Enrollment {
     }
 
     /// Mark the enrollment as accepted from the sending side
+    #[tracing::instrument(
+        name = "accepted_enrollment",
+        skip_all,
+        fields(
+            endpoint = %self.endpoint,
+            account = %self.account,
+            public_key = %self.target.public_key,
+            url = %self.target.host_address,
+            role = %self.target.role,
+            email = self.target.admin_email,
+        )
+    )]
     pub async fn accepted(
         &self,
         db: &Database,
@@ -246,7 +290,7 @@ impl Enrollment {
         .await
         .map_err(Error::CreateServiceAccount)?;
 
-        info!("Created a new service account {account}: {username}");
+        info!(username, "Created a new service account");
 
         let endpoint = self.endpoint;
 
@@ -270,18 +314,18 @@ impl Enrollment {
         .await
         .map_err(Error::SetEndpointAccountToken)?;
 
-        info!("Created a new endpoint {endpoint} associated to {username}");
+        info!("Created a new endpoint for the service account");
 
         account::Token::set(db, self.account, &self.token.encoded, self.token.expires())
             .await
             .map_err(Error::SetAccountToken)?;
 
         info!(
-            "Account token created for {account}, expires on {}",
-            self.token.expires()
+            expiration = %self.token.expires(),
+            "Account token saved",
         );
 
-        info!("Accepted endpoint {endpoint}, now operational");
+        info!("Accepted endpoint now operational");
 
         Ok(())
     }

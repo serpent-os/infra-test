@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use futures::{select, FutureExt};
-use log::info;
-use service::{logging, signal, Role, State};
+use service::{signal, Role, State};
+use tracing::info;
 
 mod web;
 
@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     let assets = assets.unwrap_or_else(|| root.join("assets"));
     let config = Config::load(config.unwrap_or_else(|| root.join("config.toml"))).await?;
 
-    logging::init(&config);
+    service::tracing::init(&config.tracing);
 
     let state = State::load(root).await?;
 

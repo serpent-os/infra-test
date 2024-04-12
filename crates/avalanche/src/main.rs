@@ -3,12 +3,12 @@ use std::{net::IpAddr, path::PathBuf};
 use clap::Parser;
 use color_eyre::eyre::Context;
 use futures::{select, FutureExt};
-use log::{debug, error, info};
 use serde::Deserialize;
 use service::{
     endpoint::{self, enrollment, Enrollment},
-    logging, signal, Account, Endpoint, Role, State,
+    signal, Account, Endpoint, Role, State,
 };
+use tracing::{debug, error, info};
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config<AvalancheConfig>;
@@ -24,7 +24,7 @@ async fn main() -> Result<()> {
 
     let config = Config::load(config.unwrap_or_else(|| root.join("config.toml"))).await?;
 
-    logging::init(&config);
+    service::tracing::init(&config.tracing);
 
     let state = State::load(root).await?;
 
@@ -70,6 +70,7 @@ async fn log_error<T>(result: Result<T>) {
     }
 }
 
+#[tracing::instrument(skip_all)]
 async fn send_initial_enrollment(config: Config, state: State) -> Result<()> {
     let target = &config.domain.summit;
 
@@ -87,8 +88,9 @@ async fn send_initial_enrollment(config: Config, state: State) -> Result<()> {
             && account.public_key == target.public_key.encode()
         {
             debug!(
-                "Configured endpoint {} already operational with public key {}",
-                endpoint.host_address, account.public_key
+                url = %endpoint.host_address,
+                public_key = %account.public_key,
+                "Configured endpoint already operational"
             );
             return Ok(());
         }

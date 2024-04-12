@@ -7,12 +7,13 @@ use futures::{
     Stream, StreamExt,
 };
 use http::Uri;
-use log::debug;
 use rand::Rng;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport;
+use tracing::{debug, info_span};
+use tracing_futures::Instrument;
 
 use crate::{
     account,
@@ -106,7 +107,7 @@ impl Service {
                         base64::prelude::BASE64_STANDARD_NO_PAD
                             .encode_string(rand.gen::<[u8; 16]>(), &mut challenge);
 
-                        debug!("Created authenticate challenge for user {username}, public_key {encoded_public_key}: {challenge}");
+                        debug!(account = %account.id, challenge, "Authenticate challenge created");
 
                         Ok(Some((
                             AuthenticateResponse {
@@ -155,8 +156,8 @@ impl Service {
                             .map_err(Error::SaveAccountToken)?;
 
                         debug!(
-                            "Authenticate successful for {}, issued account_token {account_token}, api_token: {api_token}",
-                            account.id
+                            account = %account.id,
+                            "Authenticate successful",
                         );
 
                         Ok(Some((
@@ -173,6 +174,7 @@ impl Service {
                 }
             },
         )
+        .instrument(info_span!("authenticate"))
     }
 
     async fn refresh_token(&self, request: tonic::Request<()>) -> Result<TokenResponse, Error> {
@@ -211,8 +213,8 @@ impl Service {
             .map_err(Error::SaveAccountToken)?;
 
         debug!(
-            "Refresh token successful for {}, issued account_token {account_token}, api_token: {api_token}",
-            account.id
+            account = %account.id,
+            "Refresh token successful",
         );
 
         Ok(TokenResponse {
@@ -230,16 +232,23 @@ impl AccountService for Service {
         &self,
         request: tonic::Request<tonic::Streaming<AuthenticateRequest>>,
     ) -> Result<tonic::Response<Self::AuthenticateStream>, tonic::Status> {
-        // Technically the same as ommitting this check
-        auth(&request, auth::Flags::NO_AUTH)?;
+        // We return a stream so we trace the stream separately since
+        // it's returned from this function and we don't want it to be
+        // spanned twice
+        info_span!("authenticate").in_scope(|| {
+            // Technically the same as ommitting this check
+            auth(&request, auth::Flags::NO_AUTH)
+        })?;
 
         Ok(tonic::Response::new(
             self.authenticate(request)
                 .map(|result| log_handler(result).map(tonic::Response::into_inner))
+                .instrument(info_span!("authenticate"))
                 .boxed(),
         ))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn refresh_token(
         &self,
         request: tonic::Request<()>,

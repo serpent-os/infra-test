@@ -1,6 +1,10 @@
 description = "Avalanche (test)"
 host_address = "http://127.0.0.1:5002"
-log_level = "avalanche=debug,service=debug,info"
+
+[tracing]
+level_filter = "info,avalanche=debug,service=debug"
+# compact or json
+format = "compact"
 
 [admin]
 username = "admin"

@@ -5,10 +5,10 @@ use std::{
 };
 
 use axum::{extract::Request, middleware::Next, response::Response, Router};
-use log::{debug, error};
 use service::State;
 use tokio::net::ToSocketAddrs;
 use tower_http::services::{ServeDir, ServeFile};
+use tracing::{debug, error};
 
 use crate::Result;
 
@@ -31,19 +31,25 @@ pub async fn serve(
     Ok(axum::serve(listener, app).into_future())
 }
 
+#[tracing::instrument(
+    name = "http",
+    skip_all,
+    fields(
+        method = %request.method(), 
+        path = %request.uri().path(),
+        headers = ?request.headers(),
+    )
+)]
 async fn log(request: Request, next: Next) -> Response {
-    let method = request.method().to_string();
-    let path = request.uri().path().to_string();
-
-    debug!("{method} {path}: {request:?}");
+    debug!("Request received");
 
     let response = next.run(request).await;
 
     if let Some(error) = response.extensions().get::<api::Error>() {
         // # alternate format will log causes
-        error!("{method} {path}: {error:#}");
+        error!(error = format!("{error:#}"), "Error handling request");
     } else {
-        debug!("{method} {path}: {response:?}");
+        debug!(?response, "Sending response");
     }
 
     response

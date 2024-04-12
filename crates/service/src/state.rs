@@ -1,8 +1,8 @@
 use std::{io, path::Path};
 
-use log::debug;
 use thiserror::Error;
 use tokio::fs;
+use tracing::debug;
 
 use crate::{
     crypto::{self, KeyPair},
@@ -19,16 +19,17 @@ pub struct State {
 }
 
 impl State {
+    #[tracing::instrument(name = "load_state", skip_all)]
     pub async fn load(root: impl AsRef<Path>) -> Result<Self, Error> {
         let db_path = root.as_ref().join("service.db");
         let key_path = root.as_ref().join(".privkey");
 
         let db = Database::new(&db_path).await?;
-        debug!("database {db_path:?} opened");
+        debug!(path = ?db_path, "Database opened");
 
         let key_pair = if !key_path.exists() {
             let key_pair = KeyPair::generate();
-            debug!("keypair generated: {}", key_pair.public_key().encode());
+            debug!(key_pair = %key_pair.public_key(), "Keypair generated");
 
             fs::write(&key_path, &key_pair.to_bytes())
                 .await
@@ -39,7 +40,7 @@ impl State {
             let bytes = fs::read(&key_path).await.map_err(Error::LoadPrivateKey)?;
 
             let key_pair = KeyPair::try_from_bytes(&bytes).map_err(Error::DecodePrivateKey)?;
-            debug!("keypair loaded: {}", key_pair.public_key().encode());
+            debug!(key_pair = %key_pair.public_key(), "Keypair loaded");
 
             key_pair
         };

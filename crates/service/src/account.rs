@@ -2,11 +2,11 @@ use std::fmt;
 
 use chrono::{DateTime, Utc};
 use derive_more::From;
-use log::debug;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use strum::EnumString;
 use thiserror::Error;
+use tracing::debug;
 use uuid::Uuid;
 
 pub use self::service::{Client, Server, Service};
@@ -174,7 +174,10 @@ impl Token {
               encoded,
               expiration
             )
-            VALUES (?,?,?);
+            VALUES (?,?,?)
+            ON CONFLICT(account_id) DO UPDATE SET
+              encoded = excluded.encoded,
+              expiration = excluded.expiration;
             ",
         )
         .bind(id.0)
@@ -212,6 +215,13 @@ pub struct Admin {
 }
 
 /// Ensure only the provided admin account exists in the db.
+#[tracing::instrument(
+    skip_all,
+    fields(
+        username = %admin.username,
+        public_key = %admin.public_key
+    )
+)]
 pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error> {
     let account: Option<Id> = sqlx::query_as(
         "
@@ -258,10 +268,7 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
 
     transaction.commit().await?;
 
-    debug!(
-        "Admin account set as username {}, public_key {}",
-        &admin.username, &admin.public_key
-    );
+    debug!("Admin account synced");
 
     Ok(())
 }

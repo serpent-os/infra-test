@@ -1,6 +1,10 @@
 description = "Summit (test)"
 host_address = "http://summit:5001"
-log_level = "summit=debug,service=debug,info"
+
+[tracing]
+level_filter = "info,summit=debug,service=debug"
+# compact or json
+format = "compact"
 
 [admin]
 username = "admin"
