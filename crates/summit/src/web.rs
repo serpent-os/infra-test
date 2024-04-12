@@ -37,11 +37,10 @@ pub async fn serve(
     fields(
         method = %request.method(), 
         path = %request.uri().path(),
-        headers = ?request.headers(),
     )
 )]
 async fn log(request: Request, next: Next) -> Response {
-    debug!("Request received");
+    debug!(headers = ?request.headers(), "Request received");
 
     let response = next.run(request).await;
 
@@ -49,7 +48,7 @@ async fn log(request: Request, next: Next) -> Response {
         // # alternate format will log causes
         error!(error = format!("{error:#}"), "Error handling request");
     } else {
-        debug!(?response, "Sending response");
+        debug!(status = %response.status(), "Sending response");
     }
 
     response

@@ -1,0 +1,21 @@
+description = "Vessel (test)"
+host_address = "http://vessel:5003"
+
+[tracing]
+level_filter = "info,vessel=debug,service=debug"
+# compact or json
+format = "compact"
+
+[admin]
+username = "admin"
+email = "admin@serpentos.com"
+public_key = "9eBMCOKXlF16+yCNqHhBdg7S3CY9gOu8qqH/zPX1yp0"
+
+[summit]
+host_address = "http://summit:5001"
+public_key = "qKKyTD5EOONuvml/lr7C6jRh6eHL3RrUd6qRZb8ygoQ"
+description = "Summit"
+admin_name = "admin"
+admin_email = "admin@serpentos.com"
+role = "hub"
+

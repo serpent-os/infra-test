@@ -1,5 +1,6 @@
 use std::{convert::Infallible, net::SocketAddr};
 
+use futures::TryFutureExt;
 use http::{Request, Response};
 use thiserror::Error;
 use tonic::{
@@ -10,28 +11,38 @@ use tower::{
     layer::util::{Identity, Stack},
     Layer, Service,
 };
+use tracing::error;
 
-use crate::{account, endpoint, middleware, token, Config, Role, State};
+use crate::{
+    account,
+    endpoint::{
+        self,
+        enrollment::{self, send_initial_enrollment},
+    },
+    error, middleware, token, Config, Role, State,
+};
 
 pub async fn start<T>(
     bind: impl Into<SocketAddr>,
     role: Role,
-    config: Config<T>,
-    state: State,
+    config: &Config<T>,
+    state: &State,
 ) -> Result<(), Error> {
     Server::new(role, config, state).start(bind).await
 }
 
 pub type DefaultMiddleware = Stack<middleware::Auth, Stack<middleware::Log, Identity>>;
 
-pub struct Server<T, L> {
+pub struct Server<'a, T, L> {
     router: transport::server::Router<L>,
-    config: Config<T>,
-    state: State,
+    config: &'a Config<T>,
+    state: &'a State,
+    role: Role,
+    enroll_with: Option<enrollment::Target>,
 }
 
-impl<T> Server<T, DefaultMiddleware> {
-    pub fn new(role: Role, config: Config<T>, state: State) -> Self {
+impl<'a, T> Server<'a, T, DefaultMiddleware> {
+    pub fn new(role: Role, config: &'a Config<T>, state: &'a State) -> Self {
         let endpoint_service = endpoint::Server::new(endpoint::Service {
             issuer: config.issuer(role, state.key_pair.clone()),
             db: state.db.clone(),
@@ -55,11 +66,20 @@ impl<T> Server<T, DefaultMiddleware> {
             router,
             config,
             state,
+            role,
+            enroll_with: None,
+        }
+    }
+
+    pub fn enroll_with(self, target: enrollment::Target) -> Self {
+        Self {
+            enroll_with: Some(target),
+            ..self
         }
     }
 }
 
-impl<T, L> Server<T, L>
+impl<'a, T, L> Server<'a, T, L>
 where
     L: Layer<Routes>,
     L::Service: Service<Request<Body>, Response = Response<BoxBody>> + Clone + Send + 'static,
@@ -84,6 +104,18 @@ where
 
     pub async fn start(self, bind: impl Into<SocketAddr>) -> Result<(), Error> {
         account::sync_admin(&self.state.db, self.config.admin.clone()).await?;
+
+        // Send initial enrollment to hub
+        if let Some(target) = self.enroll_with {
+            let ourself = self.config.issuer(self.role, self.state.key_pair.clone());
+
+            tokio::spawn(
+                send_initial_enrollment(target, ourself, self.state.clone()).map_err(|err| {
+                    let error = error::chain(&err);
+                    error!(%error,"Failed to send initial enrollment");
+                }),
+            );
+        }
 
         self.router.serve(bind.into()).await?;
 

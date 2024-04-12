@@ -8,7 +8,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/tmp/target \
     --mount=type=bind,target=/src <<"EOT" bash
-    TARGETS=(summit avalanche)
+    TARGETS=(summit avalanche vessel)
     for target in "${TARGETS[@]}"
     do
       cargo build --release -p "$target"
@@ -33,7 +33,14 @@ VOLUME /state
 EXPOSE 5002
 WORKDIR /app
 COPY --from=rust-builder /avalanche .
-CMD ["/app/avalanche", "0.0.0.0", "--root", "/state"]
+CMD ["/app/avalanche", "0.0.0.0", "--port", "5002", "--root", "/state"]
+
+FROM debian:bullseye-slim as vessel
+VOLUME /state
+EXPOSE 5003
+WORKDIR /app
+COPY --from=rust-builder /vessel .
+CMD ["/app/vessel", "0.0.0.0", "--port", "5003", "--root", "/state"]
 
 FROM debian:bullseye-slim as summit
 VOLUME /state
@@ -41,4 +48,4 @@ EXPOSE 5000 5001
 WORKDIR /app
 COPY --from=rust-builder /summit .
 COPY --from=node-builder /assets /assets
-CMD ["/app/summit", "0.0.0.0", "--root", "/state", "--assets", "/assets"]
+CMD ["/app/summit", "0.0.0.0", "--web-port", "5000", "--grpc-port", "5001", "--root", "/state", "--assets", "/assets"]

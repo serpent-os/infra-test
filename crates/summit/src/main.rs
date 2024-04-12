@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let mut web = web::serve((host, web_port), assets, state.clone())
         .await?
         .fuse();
-    let mut grpc = service::start((host, grpc_port), Role::Hub, config, state)
+    let mut grpc = service::start((host, grpc_port), Role::Hub, &config, &state)
         .boxed()
         .fuse();
     let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])

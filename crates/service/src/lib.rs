@@ -12,6 +12,7 @@ pub mod config;
 pub mod crypto;
 pub mod database;
 pub mod endpoint;
+mod error;
 pub mod middleware;
 pub mod role;
 pub mod server;

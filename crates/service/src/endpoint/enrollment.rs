@@ -14,7 +14,7 @@ use crate::{
     database, endpoint,
     sync::SharedMap,
     token::{self, VerifiedToken},
-    Account, Database, Endpoint, Role, Token,
+    Account, Database, Endpoint, Role, State, Token,
 };
 
 pub type PendingEnrollment = SharedMap<endpoint::Id, Enrollment>;
@@ -331,6 +331,44 @@ impl Enrollment {
     }
 }
 
+#[tracing::instrument(skip_all)]
+pub async fn send_initial_enrollment(
+    target: Target,
+    ourself: Issuer,
+    state: State,
+) -> Result<(), Error> {
+    // If we're paired & operational, we don't need to resend
+    for endpoint in Endpoint::list(&state.db)
+        .await
+        .map_err(Error::ListEndpoints)?
+    {
+        let account = Account::get(&state.db, endpoint.account)
+            .await
+            .map_err(Error::ReadAccount)?;
+
+        if matches!(endpoint.status, endpoint::Status::Operational)
+            && endpoint.host_address == target.host_address
+            && account.public_key == target.public_key.encode()
+        {
+            debug!(
+                url = %endpoint.host_address,
+                public_key = %account.public_key,
+                "Configured endpoint already operational"
+            );
+            return Ok(());
+        }
+    }
+
+    let enrollment = Enrollment::send(target, ourself).await?;
+
+    state
+        .pending_enrollment
+        .insert(enrollment.endpoint, enrollment)
+        .await;
+
+    Ok(())
+}
+
 fn create_account_token(
     endpoint: endpoint::Id,
     account: account::Id,
@@ -363,8 +401,12 @@ fn create_account_token(
 pub enum Error {
     #[error("grpc request failed")]
     Grpc(#[from] tonic::Status),
+    #[error("read account")]
+    ReadAccount(#[source] account::Error),
     #[error("create service account")]
     CreateServiceAccount(#[source] account::Error),
+    #[error("list endpoints")]
+    ListEndpoints(#[source] database::Error),
     #[error("create endpoint")]
     CreateEndpoint(#[source] database::Error),
     #[error("set endpoint account token")]

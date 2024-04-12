@@ -4,16 +4,27 @@ services:
     ports:
       - "5000:5000"
       - "5001:5001"
-    user: ${MY_UID}:${MY_GID}
     volumes:
       - ./summit:/state
+    user: ${MY_UID}:${MY_GID}
   avalanche:
     image: serpentos/avalanche
     ports:
       - "5002:5002"
-    user: ${MY_UID}:${MY_GID}
     volumes:
       - ./avalanche:/state
+    user: ${MY_UID}:${MY_GID}
+    depends_on:
+      summit:
+        condition: service_started
+        restart: true
+  vessel:
+    image: serpentos/vessel
+    ports:
+      - "5003:5003"
+    volumes:
+      - ./vessel:/state
+    user: ${MY_UID}:${MY_GID}
     depends_on:
       summit:
         condition: service_started

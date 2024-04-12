@@ -11,7 +11,7 @@ docker-build target:
 	@docker build . -t serpentos/{{target}} --target {{target}}
 
 # Build docker containers
-build: (docker-build "summit") (docker-build "avalanche")
+build: (docker-build "summit") (docker-build "avalanche") (docker-build "vessel")
 
 # Bring up docker containers
 up: build

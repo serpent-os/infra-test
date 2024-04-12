@@ -1,8 +1,9 @@
 use futures::{future::BoxFuture, FutureExt};
-use itertools::Itertools;
 use tonic::{body::BoxBody, transport::Body};
 use tower::BoxError;
 use tracing::{debug, error, info_span, Instrument};
+
+use crate::error;
 
 pub fn log_handler<T, E>(result: Result<T, E>) -> Result<tonic::Response<T>, tonic::Status>
 where
@@ -11,16 +12,7 @@ where
     match result {
         Ok(data) => Ok(tonic::Response::new(data)),
         Err(err) => {
-            // Log the chain of errors below the tonic::Status
-            // Our handler errors should convert to tonic::Status
-            // and set themselves as the source.
-            let mut chain = vec![err.to_string()];
-            let mut source = err.source();
-            while let Some(cause) = source {
-                chain.push(cause.to_string());
-                source = cause.source();
-            }
-            let error = chain.into_iter().join(": ");
+            let error = error::chain(&err);
             error!(%error, "Handler error");
 
             Err(err.into())

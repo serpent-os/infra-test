@@ -1,14 +1,10 @@
 use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
-use color_eyre::eyre::Context;
 use futures::{select, FutureExt};
 use serde::Deserialize;
-use service::{
-    endpoint::{self, enrollment, Enrollment},
-    signal, Account, Endpoint, Role, State,
-};
-use tracing::{debug, error, info};
+use service::{endpoint::enrollment, signal, Role, Server, State};
+use tracing::info;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config<AvalancheConfig>;
@@ -28,11 +24,11 @@ async fn main() -> Result<()> {
 
     let state = State::load(root).await?;
 
-    tokio::spawn(send_initial_enrollment(config.clone(), state.clone()).map(log_error));
-
     info!("avalanche listening on {host}:{port}");
 
-    let mut grpc = service::start((host, port), Role::Builder, config, state)
+    let mut grpc = Server::new(Role::Builder, &config, &state)
+        .enroll_with(config.domain.summit.clone())
+        .start((host, port))
         .boxed()
         .fuse();
     let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])
@@ -62,48 +58,4 @@ struct Args {
 #[derive(Debug, Clone, Deserialize)]
 pub struct AvalancheConfig {
     pub summit: enrollment::Target,
-}
-
-async fn log_error<T>(result: Result<T>) {
-    if let Err(e) = result {
-        error!("{e:#}");
-    }
-}
-
-#[tracing::instrument(skip_all)]
-async fn send_initial_enrollment(config: Config, state: State) -> Result<()> {
-    let target = &config.domain.summit;
-
-    // If we're paired & operational, we don't need to resend
-    for endpoint in Endpoint::list(&state.db).await? {
-        let account = Account::get(&state.db, endpoint.account)
-            .await
-            .context(format!(
-                "Can't find service account for endopoint {}",
-                endpoint.id
-            ))?;
-
-        if matches!(endpoint.status, endpoint::Status::Operational)
-            && endpoint.host_address == target.host_address
-            && account.public_key == target.public_key.encode()
-        {
-            debug!(
-                url = %endpoint.host_address,
-                public_key = %account.public_key,
-                "Configured endpoint already operational"
-            );
-            return Ok(());
-        }
-    }
-
-    let issuer = config.issuer(Role::Builder, state.key_pair.clone());
-    let enrollment = Enrollment::send(config.domain.summit, issuer)
-        .await
-        .context("Failed to send enrollment")?;
-    state
-        .pending_enrollment
-        .insert(enrollment.endpoint, enrollment)
-        .await;
-
-    Ok(())
 }
