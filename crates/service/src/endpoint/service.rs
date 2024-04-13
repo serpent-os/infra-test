@@ -16,7 +16,7 @@ use super::proto::{
 use crate::{
     account,
     crypto::EncodedPublicKey,
-    endpoint::{self, enrollment::PendingEnrollment, Enrollment},
+    endpoint,
     middleware::{auth, log_handler},
     token::{self, VerifiedToken},
     Database, Role, Token,
@@ -38,7 +38,8 @@ pub type Server = proto::endpoint_service_server::EndpointServiceServer<Service>
 pub struct Service {
     pub issuer: Issuer,
     pub db: Database,
-    pub pending_enrollment: PendingEnrollment,
+    pub pending_sent: enrollment::PendingSent,
+    pub pending_received: enrollment::PendingReceived,
 }
 
 impl Service {
@@ -86,21 +87,21 @@ impl Service {
 
         debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
-        self.pending_enrollment
+        self.pending_received
             .insert(
                 endpoint,
-                Enrollment {
+                enrollment::Received {
                     endpoint,
                     account,
-                    target: enrollment::Target {
+                    remote: enrollment::Remote {
                         host_address: issuer.url.parse::<Uri>()?,
                         public_key,
                         description: issuer.description.clone(),
                         admin_email: issuer.admin_email.clone(),
                         admin_name: issuer.admin_name.clone(),
                         role: issuer.role().into(),
+                        token: verified_token,
                     },
-                    token: verified_token,
                 },
             )
             .await;
@@ -156,11 +157,22 @@ impl Service {
             "Enrollment accepted"
         );
 
-        self.pending_enrollment
+        self.pending_sent
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?
-            .accepted(&self.db, &public_key, verified_token.encoded)
+            .accepted(
+                &self.db,
+                enrollment::Remote {
+                    host_address: issuer.url.parse::<Uri>()?,
+                    public_key,
+                    description: issuer.description.clone(),
+                    admin_email: issuer.admin_email.clone(),
+                    admin_name: issuer.admin_name.clone(),
+                    role: issuer.role().into(),
+                    token: verified_token,
+                },
+            )
             .await?;
 
         Ok(())
@@ -180,13 +192,12 @@ impl Service {
             .parse::<endpoint::Id>()
             .map_err(Error::InvalidEndpoint)?;
 
-        if let Some(enrollment) = self.pending_enrollment.remove(&endpoint).await {
+        if let Some(enrollment) = self.pending_sent.remove(&endpoint).await {
             info!(
                 %endpoint,
                 public_key = %enrollment.target.public_key,
                 url = %enrollment.target.host_address,
                 role = %enrollment.target.role,
-                email = enrollment.target.admin_email,
                 "Enrollment declined"
             );
         }
@@ -196,7 +207,7 @@ impl Service {
 
     async fn pending(&self, _request: tonic::Request<()>) -> Result<EndpointArray, Error> {
         let endpoints = self
-            .pending_enrollment
+            .pending_received
             .all()
             .await
             .into_values()
@@ -204,8 +215,8 @@ impl Service {
                 id: Some(proto::EndpointId {
                     id: enrollment.endpoint.to_string(),
                 }),
-                host_address: enrollment.target.host_address.to_string(),
-                public_key: enrollment.target.public_key.encode().to_string(),
+                host_address: enrollment.remote.host_address.to_string(),
+                public_key: enrollment.remote.public_key.encode().to_string(),
                 status: proto::EndpointStatus::AwaitingAcceptance as i32,
             })
             .collect();
@@ -221,17 +232,17 @@ impl Service {
             .map_err(Error::InvalidEndpoint)?;
 
         let enrollment = self
-            .pending_enrollment
+            .pending_received
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
 
         info!(
             %endpoint,
-            public_key = %enrollment.target.public_key,
-            url = %enrollment.target.host_address,
-            role = %enrollment.target.role,
-            email = enrollment.target.admin_email,
+            public_key = %enrollment.remote.public_key,
+            url = %enrollment.remote.host_address,
+            role = %enrollment.remote.role,
+            email = enrollment.remote.admin_email,
             "Pending enrollment accepted"
         );
 
@@ -251,17 +262,17 @@ impl Service {
             .map_err(Error::InvalidEndpoint)?;
 
         let enrollment = self
-            .pending_enrollment
+            .pending_received
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
 
         info!(
             %endpoint,
-            public_key = %enrollment.target.public_key,
-            url = %enrollment.target.host_address,
-            role = %enrollment.target.role,
-            email = enrollment.target.admin_email,
+            public_key = %enrollment.remote.public_key,
+            url = %enrollment.remote.host_address,
+            role = %enrollment.remote.role,
+            email = enrollment.remote.admin_email,
             "Pending enrollment declined"
         );
 

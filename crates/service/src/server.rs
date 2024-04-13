@@ -46,7 +46,8 @@ impl<'a, T> Server<'a, T, DefaultMiddleware> {
         let endpoint_service = endpoint::Server::new(endpoint::Service {
             issuer: config.issuer(role, state.key_pair.clone()),
             db: state.db.clone(),
-            pending_enrollment: state.pending_enrollment.clone(),
+            pending_sent: state.pending_sent_enrollment.clone(),
+            pending_received: state.pending_received_enrollment.clone(),
         });
         let account_service = account::Server::new(account::Service {
             db: state.db.clone(),

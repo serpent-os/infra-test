@@ -17,8 +17,12 @@ use crate::{
     Account, Database, Endpoint, Role, State, Token,
 };
 
-pub type PendingEnrollment = SharedMap<endpoint::Id, Enrollment>;
+/// Pending sent requests waiting to be accepted by the remote endpoint
+pub type PendingSent = SharedMap<endpoint::Id, Sent>;
+/// Pending received requests waiting to be accepted by an admin
+pub type PendingReceived = SharedMap<endpoint::Id, Received>;
 
+/// An issuer of enrollment requests
 #[derive(Debug, Clone)]
 pub struct Issuer {
     pub key_pair: KeyPair,
@@ -51,91 +55,106 @@ impl From<Issuer> for proto::Issuer {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Target {
-    #[serde(with = "http_serde::uri")]
-    pub host_address: Uri,
+/// The remote details of an enrollment request
+#[derive(Debug, Clone)]
+pub struct Remote {
     pub public_key: PublicKey,
-    pub description: String,
-    pub admin_email: String,
-    pub admin_name: String,
+    pub host_address: Uri,
     pub role: Role,
+    pub admin_name: String,
+    pub admin_email: String,
+    pub description: String,
+    pub token: VerifiedToken,
 }
 
+/// A received enrollment request
 #[derive(Debug, Clone)]
-pub struct Enrollment {
+pub struct Received {
+    pub endpoint: endpoint::Id,
+    pub account: account::Id,
+    pub remote: Remote,
+}
+
+/// A sent enrollment request
+#[derive(Debug, Clone)]
+pub struct Sent {
     pub endpoint: endpoint::Id,
     pub account: account::Id,
     pub target: Target,
     pub token: VerifiedToken,
 }
 
-impl Enrollment {
-    /// Create and send the enrollment
-    #[tracing::instrument(
-        name = "send_enrollment", 
-        skip_all,
-        fields(
-            public_key = %target.public_key,
-            url = %target.host_address,
-            role = %target.role,
-            email = target.admin_email,
-        )
-    )]
-    pub async fn send(target: Target, ourself: Issuer) -> Result<Self, Error> {
-        let endpoint = endpoint::Id::generate();
-        let account = account::Id::generate();
+/// The target of a [`Sent`] enrollment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Target {
+    #[serde(with = "http_serde::uri")]
+    pub host_address: Uri,
+    pub public_key: PublicKey,
+    pub role: Role,
+}
 
-        debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
+#[tracing::instrument(
+    name = "send_enrollment", 
+    skip_all,
+    fields(
+        public_key = %target.public_key,
+        url = %target.host_address,
+        role = %target.role,
+    )
+)]
+/// Create and send an enrollment request to [`Target`]
+pub async fn send(target: Target, ourself: Issuer) -> Result<Sent, Error> {
+    let endpoint = endpoint::Id::generate();
+    let account = account::Id::generate();
 
-        let account_token = create_account_token(endpoint, account, target.role, &ourself)?;
+    debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
-        let enrollment = Enrollment {
-            endpoint,
-            account,
-            target,
-            token: account_token.clone(),
-        };
+    let account_token = create_account_token(endpoint, account, target.role, &ourself)?;
 
-        let mut client = service::Client::connect(enrollment.target.host_address.clone()).await?;
+    let mut client = service::Client::connect(target.host_address.clone()).await?;
 
-        let resp = client
-            .enroll(EnrollmentRequest {
-                issuer: Some(ourself.into()),
-                account_token: account_token.encoded,
-                role: EndpointRole::from(enrollment.target.role) as i32,
+    let resp = client
+        .enroll(EnrollmentRequest {
+            issuer: Some(ourself.into()),
+            account_token: account_token.encoded.clone(),
+            role: EndpointRole::from(target.role) as i32,
+        })
+        .await;
+
+    match resp {
+        Ok(_) => {
+            info!(
+                %endpoint,
+                %account,
+                public_key = %target.public_key,
+                url = %target.host_address,
+                role = %target.role,
+                "Enrollment request sent"
+            );
+
+            Ok(Sent {
+                endpoint,
+                account,
+                target,
+                token: account_token,
             })
-            .await;
-
-        match resp {
-            Ok(_) => {
-                info!(
-                    %endpoint,
-                    %account,
-                    public_key = %enrollment.target.public_key,
-                    url = %enrollment.target.host_address,
-                    role = %enrollment.target.role,
-                    email = enrollment.target.admin_email,
-                    "Enrollment request sent"
-                );
-
-                Ok(enrollment)
-            }
-            Err(error) => Err(Error::Grpc(error)),
         }
+        Err(error) => Err(Error::Grpc(error)),
     }
+}
 
-    /// Accept the enrollment from the receiving side
+impl Received {
+    /// Accept the received enrollment
     #[tracing::instrument(
         name = "accept_enrollment",
         skip_all,
         fields(
             endpoint = %self.endpoint,
             account = %self.account,
-            public_key = %self.target.public_key,
-            url = %self.target.host_address,
-            role = %self.target.role,
-            email = self.target.admin_email,
+            public_key = %self.remote.public_key,
+            url = %self.remote.host_address,
+            role = %self.remote.role,
+            email = self.remote.admin_email,
         )
     )]
     pub async fn accept(self, db: &Database, ourself: Issuer) -> Result<(), Error> {
@@ -146,8 +165,9 @@ impl Enrollment {
             id: account_id,
             kind: account::Kind::Service,
             username: username.clone(),
-            email: self.target.admin_email.clone(),
-            public_key: self.target.public_key.encode(),
+            email: self.remote.admin_email,
+            name: self.remote.admin_name,
+            public_key: self.remote.public_key.encode(),
         }
         .save(&db.pool)
         .await
@@ -156,11 +176,8 @@ impl Enrollment {
         info!(username, "Created a new service account");
 
         let endpoint_id = self.endpoint;
-        let kind = match self.target.role {
+        let kind = match self.remote.role {
             Role::Builder => endpoint::Kind::Builder(endpoint::builder::Extension {
-                admin_email: self.target.admin_email.clone(),
-                admin_name: self.target.admin_name.clone(),
-                description: self.target.description.clone(),
                 work_status: endpoint::builder::WorkStatus::Idle,
             }),
             Role::RepositoryManager => endpoint::Kind::RepositoryManager,
@@ -169,16 +186,17 @@ impl Enrollment {
 
         let mut endpoint = Endpoint {
             id: endpoint_id,
-            host_address: self.target.host_address.clone(),
+            host_address: self.remote.host_address.clone(),
             status: endpoint::Status::AwaitingAcceptance,
             error: None,
             account: account_id,
+            description: self.remote.description,
             kind,
         };
         endpoint.save(db).await.map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
-            account_token: Some(self.token.encoded.clone()),
+            account_token: Some(self.remote.token.encoded.clone()),
             api_token: None,
         }
         .save(db, endpoint.id)
@@ -188,7 +206,7 @@ impl Enrollment {
         info!("Created a new endpoint for the service account");
 
         let account_token =
-            create_account_token(endpoint_id, account_id, self.target.role, &ourself)?;
+            create_account_token(endpoint_id, account_id, self.remote.role, &ourself)?;
 
         account::Token::set(
             db,
@@ -205,13 +223,13 @@ impl Enrollment {
         );
 
         let mut client =
-            service::connect_with_auth(self.target.host_address, self.token.encoded).await?;
+            service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
 
         let resp = client
             .accept(EnrollmentRequest {
                 issuer: Some(ourself.into()),
                 account_token: account_token.encoded,
-                role: EndpointRole::from(self.target.role) as i32,
+                role: EndpointRole::from(self.remote.role) as i32,
             })
             .await;
 
@@ -240,17 +258,19 @@ impl Enrollment {
         }
     }
 
-    /// Decline the enrollment from the receiving side
+    /// Decline the received enrollment
     pub async fn decline(self) -> Result<(), Error> {
         let mut client =
-            service::connect_with_auth(self.target.host_address, self.token.encoded).await?;
+            service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
 
         client.decline(()).await?;
 
         Ok(())
     }
+}
 
-    /// Mark the enrollment as accepted from the sending side
+impl Sent {
+    /// Mark the sent enrollment as accepted
     #[tracing::instrument(
         name = "accepted_enrollment",
         skip_all,
@@ -260,19 +280,14 @@ impl Enrollment {
             public_key = %self.target.public_key,
             url = %self.target.host_address,
             role = %self.target.role,
-            email = self.target.admin_email,
+            email = remote.admin_email,
         )
     )]
-    pub async fn accepted(
-        &self,
-        db: &Database,
-        public_key: &PublicKey,
-        account_token: String,
-    ) -> Result<(), Error> {
-        if *public_key != self.target.public_key {
+    pub async fn accepted(&self, db: &Database, remote: Remote) -> Result<(), Error> {
+        if remote.public_key != self.target.public_key {
             return Err(Error::PublicKeyMismatch {
                 expected: self.target.public_key.encode(),
-                actual: public_key.encode(),
+                actual: remote.public_key.encode(),
             });
         }
 
@@ -283,7 +298,8 @@ impl Enrollment {
             id: account,
             kind: account::Kind::Service,
             username: username.clone(),
-            email: self.target.admin_email.clone(),
+            email: remote.admin_email,
+            name: remote.admin_name,
             public_key: self.target.public_key.encode(),
         }
         .save(&db.pool)
@@ -300,6 +316,7 @@ impl Enrollment {
             status: endpoint::Status::Operational,
             error: None,
             account,
+            description: remote.description,
             kind: endpoint::Kind::Hub,
         }
         .save(db)
@@ -307,7 +324,7 @@ impl Enrollment {
         .map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
-            account_token: Some(account_token),
+            account_token: Some(remote.token.encoded),
             api_token: None,
         }
         .save(db, endpoint)
@@ -331,6 +348,8 @@ impl Enrollment {
     }
 }
 
+/// Send an initial enrollment to [`Target`] if the
+/// endpoint is not yet configured and operational
 #[tracing::instrument(skip_all)]
 pub async fn send_initial_enrollment(
     target: Target,
@@ -359,11 +378,11 @@ pub async fn send_initial_enrollment(
         }
     }
 
-    let enrollment = Enrollment::send(target, ourself).await?;
+    let sent = send(target, ourself).await?;
 
     state
-        .pending_enrollment
-        .insert(enrollment.endpoint, enrollment)
+        .pending_sent_enrollment
+        .insert(sent.endpoint, sent)
         .await;
 
     Ok(())

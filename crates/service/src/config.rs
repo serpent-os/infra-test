@@ -35,7 +35,7 @@ impl<T> Config<T> {
             key_pair,
             host_address: self.host_address.clone(),
             role,
-            admin_name: self.admin.username.clone(),
+            admin_name: self.admin.name.clone(),
             admin_email: self.admin.email.clone(),
             description: self.description.clone(),
         }

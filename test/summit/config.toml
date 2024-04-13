@@ -8,6 +8,7 @@ format = "compact"
 
 [admin]
 username = "admin"
+name = "Admin"
 email = "admin@serpentos.com"
 public_key = "9eBMCOKXlF16+yCNqHhBdg7S3CY9gOu8qqH/zPX1yp0"
 

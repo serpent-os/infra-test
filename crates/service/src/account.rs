@@ -56,6 +56,7 @@ pub struct Account {
     pub kind: Kind,
     pub username: String,
     pub email: String,
+    pub name: String,
     #[sqlx(try_from = "String")]
     pub public_key: EncodedPublicKey,
 }
@@ -69,6 +70,7 @@ impl Account {
               type,
               username,
               email,
+              name,
               public_key
             FROM account
             WHERE account_id = ?;
@@ -93,6 +95,7 @@ impl Account {
               type,
               username,
               email,
+              name,
               public_key
             FROM account
             WHERE 
@@ -121,13 +124,15 @@ impl Account {
               type,
               username,
               email,
+              name,
               public_key
             )
-            VALUES (?,?,?,?,?)
+            VALUES (?,?,?,?,?,?)
             ON CONFLICT(account_id) DO UPDATE SET 
               type=excluded.type,
               username=excluded.username,
               email=excluded.email,
+              name=excluded.name,
               public_key=excluded.public_key;
             ",
         )
@@ -135,6 +140,7 @@ impl Account {
         .bind(self.kind.to_string())
         .bind(&self.username)
         .bind(&self.email)
+        .bind(&self.name)
         .bind(self.public_key.to_string())
         .execute(conn)
         .await?;
@@ -210,6 +216,7 @@ impl Token {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Admin {
     pub username: String,
+    pub name: String,
     pub email: String,
     pub public_key: EncodedPublicKey,
 }
@@ -231,11 +238,13 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
         WHERE 
           type = 'admin'
           AND username = ?
+          AND name = ?
           AND email = ?
           AND public_key = ?;
         ",
     )
     .bind(&admin.username)
+    .bind(&admin.name)
     .bind(&admin.email)
     .bind(admin.public_key.to_string())
     .fetch_optional(&db.pool)
@@ -260,6 +269,7 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
         id: Id::generate(),
         kind: Kind::Admin,
         username: admin.username.clone(),
+        name: admin.name.clone(),
         email: admin.email.clone(),
         public_key: admin.public_key.clone(),
     }

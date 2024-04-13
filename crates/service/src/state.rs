@@ -7,7 +7,7 @@ use tracing::debug;
 use crate::{
     crypto::{self, KeyPair},
     database,
-    endpoint::enrollment::PendingEnrollment,
+    endpoint::enrollment,
     Database,
 };
 
@@ -15,7 +15,8 @@ use crate::{
 pub struct State {
     pub db: Database,
     pub key_pair: KeyPair,
-    pub pending_enrollment: PendingEnrollment,
+    pub pending_sent_enrollment: enrollment::PendingSent,
+    pub pending_received_enrollment: enrollment::PendingReceived,
 }
 
 impl State {
@@ -48,7 +49,8 @@ impl State {
         Ok(Self {
             db,
             key_pair,
-            pending_enrollment: PendingEnrollment::default(),
+            pending_sent_enrollment: Default::default(),
+            pending_received_enrollment: Default::default(),
         })
     }
 }

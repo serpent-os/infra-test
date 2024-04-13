@@ -4,11 +4,9 @@ use std::str::FromStr;
 use derive_more::From;
 use http::Uri;
 use serde::{Deserialize, Serialize};
-use sqlx::types::Json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-pub use self::enrollment::Enrollment;
 pub use self::service::{Client, Server, Service};
 use crate::{account, database, Database, Role};
 
@@ -65,6 +63,7 @@ pub struct Endpoint {
     pub error: Option<String>,
     #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub account: account::Id,
+    pub description: String,
     #[sqlx(flatten)]
     #[serde(flatten)]
     pub kind: Kind,
@@ -81,17 +80,19 @@ impl Endpoint {
               status,
               error,
               account_id,
+              description,
               role,
-              extension
+              work_status
             )
-            VALUES (?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?)
             ON CONFLICT(account_id) DO UPDATE SET 
               host_address=excluded.host_address,
               status=excluded.status,
               error=excluded.error,
               account_id=excluded.account_id,
+              description=excluded.description,
               role=excluded.role,
-              extension=excluded.extension;
+              work_status=excluded.work_status;
             ",
         )
         .bind(self.id.0)
@@ -99,8 +100,9 @@ impl Endpoint {
         .bind(self.status.to_string())
         .bind(&self.error)
         .bind(self.account.uuid())
+        .bind(&self.description)
         .bind(self.kind.role().to_string())
-        .bind(Json(self.kind.extension_json()))
+        .bind(self.kind.work_status().map(ToString::to_string))
         .execute(&db.pool)
         .await?;
 
@@ -116,8 +118,9 @@ impl Endpoint {
               status,
               error,
               account_id,
+              description,
               role,
-              extension
+              work_status
             FROM endpoint;
             ",
         )
@@ -222,11 +225,11 @@ impl Kind {
         }
     }
 
-    pub fn extension_json(&self) -> Option<serde_json::Value> {
-        match self {
-            Kind::Hub => None,
-            Kind::RepositoryManager => None,
-            Kind::Builder(ext) => serde_json::to_value(ext).ok(),
+    pub fn work_status(&self) -> Option<&builder::WorkStatus> {
+        if let Self::Builder(ext) = self {
+            Some(&ext.work_status)
+        } else {
+            None
         }
     }
 }
@@ -237,17 +240,19 @@ impl<'a> FromRow<'a, sqlx::sqlite::SqliteRow> for Kind {
         struct Row {
             #[sqlx(try_from = "&'a str")]
             role: Role,
-            #[sqlx(json)]
-            extension: Option<serde_json::Value>,
+
+            // Builder fields
+            work_status: Option<String>,
         }
 
         let row = Row::from_row(row)?;
 
-        match (row.role, row.extension) {
+        match (row.role, row.work_status) {
             (Role::Builder, Some(value)) => {
-                let extension = builder::Extension::deserialize(value)
+                let work_status = value
+                    .parse()
                     .map_err(|e| sqlx::Error::Decode(Box::from(e)))?;
-                Ok(Kind::Builder(extension))
+                Ok(Kind::Builder(builder::Extension { work_status }))
             }
             (Role::Builder, _) => Err(sqlx::Error::Decode(Box::from(
                 "extension can't be null for builder endpoint",
@@ -263,9 +268,6 @@ pub mod builder {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Extension {
-        pub admin_email: String,
-        pub admin_name: String,
-        pub description: String,
         pub work_status: WorkStatus,
     }
 
