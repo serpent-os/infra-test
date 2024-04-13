@@ -35,7 +35,7 @@ pub async fn serve(
     name = "http",
     skip_all,
     fields(
-        method = %request.method(), 
+        method = %request.method(),
         path = %request.uri().path(),
     )
 )]
