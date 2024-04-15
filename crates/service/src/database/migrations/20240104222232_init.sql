@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS endpoint (
     account_id TEXT NOT NULL UNIQUE, 
     description NOT NULL,
 
-    -- Role must preceed role specific fields
+    -- Role must precede role specific fields
     role TEXT NOT NULL,
 
     -- Builder fields

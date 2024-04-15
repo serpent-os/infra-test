@@ -154,7 +154,7 @@ pub struct Payload {
     /// Account id of the holder
     #[serde(rename = "uid")]
     pub account_id: account::Id,
-    /// Acount type of the holder
+    /// Account type of the holder
     #[serde(rename = "act")]
     pub account_type: account::Kind,
 }

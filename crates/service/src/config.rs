@@ -21,7 +21,7 @@ pub struct Config<T> {
     /// Tracing configuration
     #[serde(default)]
     pub tracing: tracing::Config,
-    /// Generic configuartion that can be specialized by the service
+    /// Generic configuration that can be specialized by the service
     #[serde(flatten)]
     pub domain: T,
 }

@@ -216,7 +216,7 @@ impl AccountService for Service {
         // it's returned from this function and we don't want it to be
         // spanned twice
         info_span!("authenticate").in_scope(|| {
-            // Technically the same as ommitting this check
+            // Technically the same as omitting this check
             auth(&request, auth::Flags::NO_AUTH)
         })?;
 

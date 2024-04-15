@@ -51,7 +51,7 @@ impl Service {
     async fn enroll(&self, request: tonic::Request<EnrollmentRequest>) -> Result<(), Error> {
         let request = request.into_inner();
 
-        // Proto3 makes all message types optional for backwards compatability
+        // Proto3 makes all message types optional for backwards compatibility
         let issuer = request.issuer.as_ref().ok_or(Error::MalformedRequest)?;
         let public_key = EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
         let verified_token = Token::verify(&request.account_token, &public_key, &token::Validation::new())
@@ -273,7 +273,7 @@ impl EndpointService for Service {
         &self,
         request: tonic::Request<EnrollmentRequest>,
     ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        // Technically the same as ommitting this check
+        // Technically the same as omitting this check
         auth(&request, auth::Flags::NO_AUTH)?;
 
         if matches!(self.role(), EndpointRole::Hub) {
@@ -433,7 +433,7 @@ pub enum Error {
     /// Endpoint (UUIDv4) cannot be parsed from string
     #[error("invalid endpoint")]
     InvalidEndpoint(#[source] uuid::Error),
-    /// Token verfication failed
+    /// Token verification failed
     #[error("verify token")]
     VerifyToken(#[source] token::Error),
     /// An enrollment error

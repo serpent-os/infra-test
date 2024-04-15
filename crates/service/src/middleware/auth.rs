@@ -20,7 +20,7 @@ pub fn auth<T>(request: &tonic::Request<T>, validation_flags: Flags) -> Result<(
     let validation_names = flag_names(validation_flags);
     let token_names = flag_names(request_flags);
 
-    // If token flags wholy contains all validation flags,
+    // If token flags wholly contains all validation flags,
     // then user is properly authorized
     if request_flags.contains(validation_flags) {
         Ok(())
