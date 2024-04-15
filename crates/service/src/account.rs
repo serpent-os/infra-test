@@ -1,4 +1,4 @@
-//! Manage account data
+//! Manage data for admin, user, bot & service accounts
 
 use std::fmt;
 
