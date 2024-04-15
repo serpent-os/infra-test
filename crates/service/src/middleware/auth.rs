@@ -1,3 +1,6 @@
+//! Parse the authorization token from incoming requests, validate it and provide
+//! the verified token & flags as extensions to downstream middleware / handlers
+
 use bitflags::bitflags;
 use tonic::{body::BoxBody, transport::Body};
 use tracing::{debug, warn};
@@ -9,8 +12,14 @@ use crate::{
     Token,
 };
 
-pub fn auth<T>(req: &tonic::Request<T>, validation_flags: Flags) -> Result<(), tonic::Status> {
-    let request_flags = req.extensions().get::<Flags>().copied().unwrap_or_default();
+/// Validate the provided `request` against `validation_flags` and return an
+/// error if the request doesn't pass the required validation.
+pub fn auth<T>(request: &tonic::Request<T>, validation_flags: Flags) -> Result<(), tonic::Status> {
+    let request_flags = request
+        .extensions()
+        .get::<Flags>()
+        .copied()
+        .unwrap_or_default();
 
     let validation_names = flag_names(validation_flags);
     let token_names = flag_names(request_flags);
@@ -35,21 +44,33 @@ pub fn auth<T>(req: &tonic::Request<T>, validation_flags: Flags) -> Result<(), t
 /// [`VerifiedToken`] will be added as an extension.
 #[derive(Debug, Clone)]
 pub struct Auth {
+    /// Public key used to verify the [`Token`] signature
     pub pub_key: PublicKey,
+    /// Validation rules used when calling [`Token::verify`]
     pub validation: Validation,
 }
 
 bitflags! {
+    /// Authorization flags that describe the account making the request
     #[derive(Debug, Clone, Copy,PartialEq, Eq, Default)]
     pub struct Flags : u16 {
+        /// Missing or invalid token
         const NO_AUTH = 0;
+        /// Account token purpose
         const ACCOUNT_TOKEN = 1 << 0;
+        /// API token purpose
         const API_TOKEN = 1 << 1;
+        /// Service account type
         const SERVICE_ACCOUNT = 1 << 2;
+        /// Bot account type
         const BOT_ACCOUNT = 1 << 3;
+        /// User account type
         const USER_ACCOUNT = 1 << 4;
+        /// Admin account type
         const ADMIN_ACCOUNT = 1 << 5;
+        /// Token is expired
         const EXPIRED = 1 << 6;
+        /// Token is not expired
         const NOT_EXPIRED = 1 << 7;
     }
 }
@@ -66,6 +87,7 @@ impl<S> tower::Layer<S> for Auth {
     }
 }
 
+/// Tower service of the [`Auth`] layer
 #[derive(Debug, Clone)]
 pub struct Service<S> {
     inner: S,

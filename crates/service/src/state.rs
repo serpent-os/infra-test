@@ -1,3 +1,4 @@
+//! Shared service state
 use std::{io, path::Path};
 
 use thiserror::Error;
@@ -11,15 +12,19 @@ use crate::{
     Database,
 };
 
+/// Service state
 #[derive(Debug, Clone)]
 pub struct State {
+    /// Service database
     pub db: Database,
+    /// Key pair used by the service
     pub key_pair: KeyPair,
-    pub pending_sent_enrollment: enrollment::PendingSent,
-    pub pending_received_enrollment: enrollment::PendingReceived,
+    /// Pending enrollment requests waiting for confirmation
+    pub pending_enrollment: enrollment::Pending,
 }
 
 impl State {
+    /// Load state from the provided path. If no keypair and/or database exist, they will be created.
     #[tracing::instrument(name = "load_state", skip_all)]
     pub async fn load(root: impl AsRef<Path>) -> Result<Self, Error> {
         let db_path = root.as_ref().join("service.db");
@@ -49,20 +54,24 @@ impl State {
         Ok(Self {
             db,
             key_pair,
-            pending_sent_enrollment: Default::default(),
-            pending_received_enrollment: Default::default(),
+            pending_enrollment: Default::default(),
         })
     }
 }
 
+/// A state error
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Loading database failed
     #[error("load database")]
     LoadDatabase(#[from] database::Error),
+    /// Saving private key failed
     #[error("save private key")]
     SavePrivateKey(#[source] io::Error),
+    /// Loading private key failed
     #[error("load private key")]
     LoadPrivateKey(#[source] io::Error),
+    /// Decoding private key failed
     #[error("decode private key")]
     DecodePrivateKey(#[source] crypto::Error),
 }

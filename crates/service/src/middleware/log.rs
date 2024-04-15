@@ -1,3 +1,5 @@
+//! Log the request and if applicable, error
+
 use futures::{future::BoxFuture, FutureExt};
 use tonic::{body::BoxBody, transport::Body};
 use tower::BoxError;
@@ -5,6 +7,7 @@ use tracing::{debug, error, info_span, Instrument};
 
 use crate::error;
 
+/// Convert the provided result into a [`tonic::Response`] and log any error
 pub fn log_handler<T, E>(result: Result<T, E>) -> Result<tonic::Response<T>, tonic::Status>
 where
     E: Into<tonic::Status> + std::error::Error,
@@ -20,6 +23,7 @@ where
     }
 }
 
+/// Logging middleware which logs the request and if applicable, error
 #[derive(Debug, Clone, Copy)]
 pub struct Log;
 
@@ -31,6 +35,7 @@ impl<S> tower::Layer<S> for Log {
     }
 }
 
+/// Tower service of the [`Log`] layer
 #[derive(Debug, Clone)]
 pub struct Service<S> {
     inner: S,

@@ -1,3 +1,5 @@
+//! Enroll with remote services to provision authorization
+
 use chrono::Utc;
 use http::Uri;
 use serde::{Deserialize, Serialize};
@@ -17,20 +19,30 @@ use crate::{
     Account, Database, Endpoint, Role, State, Token,
 };
 
-/// Pending sent requests waiting to be accepted by the remote endpoint
-pub type PendingSent = SharedMap<endpoint::Id, Sent>;
-/// Pending received requests waiting to be accepted by an admin
-pub type PendingReceived = SharedMap<endpoint::Id, Received>;
+/// Pending enrollment requests waiting for confirmation
+#[derive(Debug, Clone, Default)]
+pub struct Pending {
+    /// Pending sent requests waiting to be accepted by the remote endpoint
+    pub sent: SharedMap<endpoint::Id, Sent>,
+    /// Pending received requests waiting to be accepted by an admin
+    pub received: SharedMap<endpoint::Id, Received>,
+}
 
 /// An issuer of enrollment requests
 #[derive(Debug, Clone)]
 pub struct Issuer {
+    /// [`KeyPair`] for creating / validating tokens
     pub key_pair: KeyPair,
+    /// [`Uri`] the issuer can be reached at
     pub host_address: Uri,
+    /// Endpoint role
     pub role: Role,
-    pub admin_name: String,
-    pub admin_email: String,
+    /// Endpoint description
     pub description: String,
+    /// Admin name
+    pub admin_name: String,
+    /// Admin email
+    pub admin_email: String,
 }
 
 impl From<Issuer> for proto::Issuer {
@@ -58,38 +70,55 @@ impl From<Issuer> for proto::Issuer {
 /// The remote details of an enrollment request
 #[derive(Debug, Clone)]
 pub struct Remote {
+    /// [`PublicKey`] of the remote endpoint
     pub public_key: PublicKey,
+    /// [`Uri`] the remote endpoint can be reached at
     pub host_address: Uri,
+    /// Remote endpoint role
     pub role: Role,
-    pub admin_name: String,
-    pub admin_email: String,
+    /// Remote endpoint description
     pub description: String,
+    /// Admin name
+    pub admin_name: String,
+    /// Admin email
+    pub admin_email: String,
+    /// Account token assigned to us by the remote endpoint
     pub token: VerifiedToken,
 }
 
 /// A received enrollment request
 #[derive(Debug, Clone)]
 pub struct Received {
+    /// UUID to assign the endpoint of this request
     pub endpoint: endpoint::Id,
+    /// UUID to assign the service account of this request
     pub account: account::Id,
+    /// Remote details of the enrollment request
     pub remote: Remote,
 }
 
 /// A sent enrollment request
 #[derive(Debug, Clone)]
 pub struct Sent {
+    /// UUID to assign the endpoint of this request
     pub endpoint: endpoint::Id,
+    /// UUID to assign the service account of this request
     pub account: account::Id,
+    /// Target of the enrollment request
     pub target: Target,
+    /// Account token we've issued and sent along w/ the request
     pub token: VerifiedToken,
 }
 
 /// The target of a [`Sent`] enrollment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Target {
+    /// [`Uri`] the target endpoint can be reached at
     #[serde(with = "http_serde::uri")]
     pub host_address: Uri,
+    /// [`PublicKey`] of the target endpoint
     pub public_key: PublicKey,
+    /// Target endpoint role
     pub role: Role,
 }
 
@@ -381,7 +410,8 @@ pub async fn send_initial_enrollment(
     let sent = send(target, ourself).await?;
 
     state
-        .pending_sent_enrollment
+        .pending_enrollment
+        .sent
         .insert(sent.endpoint, sent)
         .await;
 
@@ -416,31 +446,45 @@ fn create_account_token(
     })
 }
 
+/// An enrollment error
 #[derive(Debug, Error)]
 pub enum Error {
+    /// gRPC request failed
     #[error("grpc request failed")]
     Grpc(#[from] tonic::Status),
+    /// Reading an [`Account`] failed
     #[error("read account")]
     ReadAccount(#[source] account::Error),
+    /// Creating a service [`Account`] failed
     #[error("create service account")]
     CreateServiceAccount(#[source] account::Error),
+    /// Listing endpoints failed
     #[error("list endpoints")]
     ListEndpoints(#[source] database::Error),
+    /// Creating an [`Endpoint`] failed
     #[error("create endpoint")]
     CreateEndpoint(#[source] database::Error),
+    /// Setting the account token given by an endpoint failed
     #[error("set endpoint account token")]
     SetEndpointAccountToken(#[source] database::Error),
+    /// Setting the account token given to an endpoint failed
     #[error("set account token")]
     SetAccountToken(#[source] account::Error),
+    /// Updating the endpoint status failed
     #[error("update endpoint status")]
     UpdateEndpointStatus(#[source] database::Error),
+    /// Public key doesn't match expected value
     #[error("public key mismatch, expected {expected} got {actual}")]
     PublicKeyMismatch {
+        /// The expected key
         expected: EncodedPublicKey,
+        /// The actual key
         actual: EncodedPublicKey,
     },
+    /// gRPC transport error
     #[error("grpc transport")]
     Transport(#[from] tonic::transport::Error),
+    /// Token signing failed
     #[error("sign token")]
     SignToken(#[from] token::Error),
 }

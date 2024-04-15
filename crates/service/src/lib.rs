@@ -1,3 +1,6 @@
+#![warn(missing_docs)]
+//! Shared service code for Serpent OS infrastructure
+
 pub use self::account::Account;
 pub use self::config::Config;
 pub use self::database::Database;

@@ -1,3 +1,5 @@
+//! A [`Service`] implementing the [`EndpointService`] interface
+
 use std::sync::Arc;
 
 use http::Uri;
@@ -9,10 +11,7 @@ use tonic::{
 use tracing::{debug, error, info};
 
 use super::enrollment::{self, Issuer};
-use super::proto::{
-    self, endpoint_service_server::EndpointService, EndpointArray, EndpointId, EndpointRole,
-    EnrollmentRequest,
-};
+use super::proto::{self, EndpointArray, EndpointId, EndpointRole, EnrollmentRequest};
 use crate::{
     account,
     crypto::EncodedPublicKey,
@@ -21,6 +20,8 @@ use crate::{
     token::{self, VerifiedToken},
     Database, Role, Token,
 };
+
+pub use super::proto::endpoint_service_server::EndpointService;
 
 const ENROLLMENT_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
     auth::Flags::NOT_EXPIRED.bits()
@@ -33,13 +34,17 @@ const ADMIN_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
         | auth::Flags::ADMIN_ACCOUNT.bits(),
 );
 
+/// A gRPC server capable of routing [`EndpointService`] requests to be handled by [`Service`]
 pub type Server = proto::endpoint_service_server::EndpointServiceServer<Service>;
 
+/// An implementation of the [`EndpointService`] interface
 pub struct Service {
+    /// Issuer details of this service
     pub issuer: Issuer,
+    /// Shared database of this service
     pub db: Database,
-    pub pending_sent: enrollment::PendingSent,
-    pub pending_received: enrollment::PendingReceived,
+    /// Pending enrollment requests that are awaiting confirmation
+    pub pending_enrollment: enrollment::Pending,
 }
 
 impl Service {
@@ -87,7 +92,8 @@ impl Service {
 
         debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
-        self.pending_received
+        self.pending_enrollment
+            .received
             .insert(
                 endpoint,
                 enrollment::Received {
@@ -157,7 +163,8 @@ impl Service {
             "Enrollment accepted"
         );
 
-        self.pending_sent
+        self.pending_enrollment
+            .sent
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?
@@ -192,7 +199,7 @@ impl Service {
             .parse::<endpoint::Id>()
             .map_err(Error::InvalidEndpoint)?;
 
-        if let Some(enrollment) = self.pending_sent.remove(&endpoint).await {
+        if let Some(enrollment) = self.pending_enrollment.sent.remove(&endpoint).await {
             info!(
                 %endpoint,
                 public_key = %enrollment.target.public_key,
@@ -207,7 +214,8 @@ impl Service {
 
     async fn pending(&self, _request: tonic::Request<()>) -> Result<EndpointArray, Error> {
         let endpoints = self
-            .pending_received
+            .pending_enrollment
+            .received
             .all()
             .await
             .into_values()
@@ -232,7 +240,8 @@ impl Service {
             .map_err(Error::InvalidEndpoint)?;
 
         let enrollment = self
-            .pending_received
+            .pending_enrollment
+            .received
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
@@ -262,7 +271,8 @@ impl Service {
             .map_err(Error::InvalidEndpoint)?;
 
         let enrollment = self
-            .pending_received
+            .pending_enrollment
+            .received
             .remove(&endpoint)
             .await
             .ok_or(Error::MissingPendingEnrollment(endpoint))?;
@@ -405,8 +415,10 @@ impl EndpointService for Service {
     }
 }
 
+/// A client that can connect to and call the [`EndpointService`] interface
 pub type Client<T> = proto::endpoint_service_client::EndpointServiceClient<T>;
 
+/// Connect to the [`EndpointService`] at [`Uri`] with authorization via the provided API `token`
 pub async fn connect_with_auth(
     uri: Uri,
     token: String,
@@ -424,29 +436,42 @@ pub async fn connect_with_auth(
     ))
 }
 
+/// An error when handling an [`EndpointService`] request
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Required token is missing from the request
     #[error("Token missing from request")]
     MissingRequestToken,
+    /// Request is malformed
     #[error("Malformed request")]
     MalformedRequest,
+    /// Request requires an account token
     #[error("Requires an account token")]
     RequireAccountToken,
+    /// Public key is invalid and can't be decoded
     #[error("Invalid public key")]
     InvalidPublicKey,
+    /// Role on request doesn't match role of service
     #[error("Role mismatch, expected {expected:?} provided {provided:?}")]
     RoleMismatch {
+        /// The expected role
         expected: EndpointRole,
+        /// The provided role
         provided: EndpointRole,
     },
+    /// No pending enrollment is found for the provided endpoint ID
     #[error("Pending enrollment missing for endpoint {0}")]
     MissingPendingEnrollment(endpoint::Id),
+    /// Url cannot be parsed from string
     #[error("invalid uri")]
     InvalidUrl(#[from] http::uri::InvalidUri),
+    /// Endpoint (UUIDv4) cannot be parsed from string
     #[error("invalid endpoint")]
     InvalidEndpoint(#[source] uuid::Error),
+    /// Token verfication failed
     #[error("verify token")]
     VerifyToken(#[source] token::Error),
+    /// An enrollment error
     #[error("enrollment")]
     Enrollment(#[from] enrollment::Error),
 }

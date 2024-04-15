@@ -1,3 +1,6 @@
+//! Json Web Token (JWT)
+use std::time::SystemTime;
+
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
@@ -8,13 +11,16 @@ use crate::{
     crypto::{self, KeyPair, PublicKey},
 };
 
+/// A decoded Json Web Token (JWT)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     header: Header,
+    /// Payload of the token
     pub payload: Payload,
 }
 
 impl Token {
+    /// Creates a new token from the provided [`Payload`]
     pub fn new(payload: Payload) -> Self {
         Self {
             header: Header::new(jsonwebtoken::Algorithm::EdDSA),
@@ -57,8 +63,9 @@ impl Token {
         .map_err(Error::SignToken)
     }
 
+    /// Returns true if the token is expired from [`SystemTime::now`]
     pub fn is_expired(&self) -> bool {
-        let start = std::time::SystemTime::now();
+        let start = SystemTime::now();
         let now = start
             .duration_since(std::time::UNIX_EPOCH)
             .expect("Time went backwards")
@@ -68,13 +75,17 @@ impl Token {
     }
 }
 
+/// A token that's been verified via [`Token::verify`]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedToken {
+    /// Encoded token string
     pub encoded: String,
+    /// Decoded token
     pub decoded: Token,
 }
 
 impl VerifiedToken {
+    /// Returns the datetime the token expires
     pub fn expires(&self) -> DateTime<Utc> {
         chrono::NaiveDateTime::from_timestamp_opt(self.decoded.payload.exp, 0)
             .map(|dt| dt.and_utc())
@@ -82,6 +93,7 @@ impl VerifiedToken {
     }
 }
 
+/// Validation rules to use when running [`Token::verify`]
 #[derive(Debug, Clone)]
 pub struct Validation(jsonwebtoken::Validation);
 
@@ -130,34 +142,43 @@ impl Validation {
     }
 }
 
+/// Payload of a [`Token`] which defines various claims
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Payload {
-    // Standard
+    /// Audience - Recipient for which the JWT is intended
     pub aud: String,
+    /// Expiration - Time after which the JWT expires
     pub exp: i64,
+    /// Issued at - Time at which the JWT was issued; can be used to determine age of the JWT
     pub iat: i64,
+    /// Issuer - Issuer of the JWT
     pub iss: String,
+    /// Subject - Subject of the JWT (the user)
     pub sub: String,
-    // Internal
+    /// Token purpose
     #[serde(rename = "pur")]
     pub purpose: Purpose,
+    /// Account id of the holder
     #[serde(rename = "uid")]
     pub account_id: account::Id,
+    /// Acount type of the holder
     #[serde(rename = "act")]
     pub account_type: account::Kind,
 }
 
+/// Purpose of the token
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::Display)]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum Purpose {
-    // Authentication
+    /// Authentication
     Account,
-    // Authorization
+    /// Authorization
     Api,
 }
 
 impl Purpose {
+    /// Duration used for the expiration of a token with this purpose
     pub fn duration(&self) -> Duration {
         match self {
             Purpose::Account => Duration::days(7),
@@ -166,12 +187,16 @@ impl Purpose {
     }
 }
 
+/// A token error
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Decoding token failed
     #[error("decode token")]
     DecodeToken(#[source] jsonwebtoken::errors::Error),
+    /// Signing token failed
     #[error("sign token")]
     SignToken(#[source] jsonwebtoken::errors::Error),
+    /// A crypto error
     #[error(transparent)]
     Crypto(#[from] crypto::Error),
 }

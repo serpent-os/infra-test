@@ -1,3 +1,5 @@
+//! Describe remote services and connect to them
+
 use std::fmt;
 use std::str::FromStr;
 
@@ -13,11 +15,13 @@ use crate::{account, database, Database, Role};
 pub mod enrollment;
 pub mod service;
 
+/// Unique identifier of an [`Endpoint`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From)]
 #[serde(try_from = "&str", into = "String")]
 pub struct Id(Uuid);
 
 impl Id {
+    /// Generate a new [`Id`]
     pub fn generate() -> Self {
         Self(Uuid::new_v4())
     }
@@ -51,25 +55,35 @@ impl From<Id> for String {
     }
 }
 
+/// Details of a remote endpoint (service) that we are connected to
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Endpoint {
+    /// Unique identifier of the endpoint
     #[sqlx(rename = "endpoint_id", try_from = "Uuid")]
     pub id: Id,
+    /// [`Uri`] we can reach the endpoint at
     #[serde(with = "http_serde::uri")]
     #[sqlx(try_from = "&'a str")]
     pub host_address: Uri,
+    /// Current status of the endpoint
     #[sqlx(try_from = "&'a str")]
     pub status: Status,
+    /// Error message, if any, due to the endpoint being in an
+    /// error [`Status`]
     pub error: Option<String>,
+    /// Related service account identifier for this endpoint
     #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub account: account::Id,
+    /// Description of the endpoint provided during enrollment
     pub description: String,
+    /// Role specific data
     #[sqlx(flatten)]
     #[serde(flatten)]
     pub kind: Kind,
 }
 
 impl Endpoint {
+    /// Create or update this endpoint to the provided [`Database`]
     pub async fn save(&self, db: &Database) -> Result<(), database::Error> {
         sqlx::query(
             "
@@ -109,6 +123,7 @@ impl Endpoint {
         Ok(())
     }
 
+    /// List all endpoints from the provided [`Database`]
     pub async fn list(db: &Database) -> Result<Vec<Endpoint>, database::Error> {
         let endpoints: Vec<Endpoint> = sqlx::query_as(
             "
@@ -130,6 +145,7 @@ impl Endpoint {
         Ok(endpoints)
     }
 
+    /// Delete this endpoint from the provided [`Database`]
     pub async fn delete(&self, db: &Database) -> Result<(), database::Error> {
         sqlx::query(
             "
@@ -144,6 +160,7 @@ impl Endpoint {
         Ok(())
     }
 
+    /// Return [`builder`] related information if this endpoint is a [`Role::Builder`]
     pub fn builder(&self) -> Option<&builder::Extension> {
         if let Kind::Builder(ext) = &self.kind {
             Some(ext)
@@ -153,13 +170,17 @@ impl Endpoint {
     }
 }
 
+/// Auth tokens used to connect to the endpoint
 #[derive(Debug, Clone, FromRow)]
 pub struct Tokens {
+    /// Token used for authentication
     pub account_token: Option<String>,
+    /// Token used for authorization to hit APIs provided by the endpoint
     pub api_token: Option<String>,
 }
 
 impl Tokens {
+    /// Save the tokens related to [`Id`] to the provided [`Database`]
     pub async fn save(&self, db: &Database, id: Id) -> Result<(), database::Error> {
         sqlx::query(
             "
@@ -179,6 +200,7 @@ impl Tokens {
         Ok(())
     }
 
+    /// Get the tokens for [`Id`] from the provided [`Database`]
     pub async fn get(db: &Database, id: Id) -> Result<Self, database::Error> {
         let tokens: Tokens = sqlx::query_as(
             "
@@ -197,26 +219,37 @@ impl Tokens {
     }
 }
 
+/// Status of the [`Endpooint`]
 #[derive(Debug, Clone, Copy, strum::Display, strum::EnumString, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum Status {
+    /// Awaiting enrollment acceptance for the endpoint
     AwaitingAcceptance,
+    /// Endpoint is in a failed state
     Failed,
+    /// Endpoint is enrolled and operational
     Operational,
+    /// Authorization to the endpoint is forbidden
     Forbidden,
+    /// Endpoint cannot be reeached
     Unreachable,
 }
 
+/// Extension details related to the [`Role`] of the endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "role", content = "extension", rename_all = "kebab-case")]
 pub enum Kind {
+    /// Hub
     Hub,
+    /// Repository Manager
     RepositoryManager,
+    /// Builder
     Builder(builder::Extension),
 }
 
 impl Kind {
+    /// [`Role`] defined by this endpoint
     pub fn role(&self) -> Role {
         match self {
             Self::Hub => Role::Hub,
@@ -225,6 +258,7 @@ impl Kind {
         }
     }
 
+    /// Work status of a [`Role::Builder`] endpoint
     pub fn work_status(&self) -> Option<&builder::WorkStatus> {
         if let Self::Builder(ext) = self {
             Some(&ext.work_status)
@@ -264,18 +298,24 @@ impl<'a> FromRow<'a, sqlx::sqlite::SqliteRow> for Kind {
 }
 
 pub mod builder {
+    //! Builder specific endpoint details
     use serde::{Deserialize, Serialize};
 
+    /// Builder extension details
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Extension {
+        /// Work status of the endpoint
         pub work_status: WorkStatus,
     }
 
+    /// Work status of the builder
     #[derive(Debug, Clone, Copy, strum::Display, strum::EnumString, Serialize, Deserialize)]
     #[serde(rename_all = "kebab-case")]
     #[strum(serialize_all = "kebab-case")]
     pub enum WorkStatus {
+        /// Builder is idle
         Idle,
+        /// Builder is running
         Running,
     }
 }

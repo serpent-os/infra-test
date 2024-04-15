@@ -1,3 +1,5 @@
+//! Manage account data
+
 use std::fmt;
 
 use chrono::{DateTime, Utc};
@@ -14,15 +16,18 @@ use crate::{crypto::EncodedPublicKey, database, Database};
 
 pub mod service;
 
+/// Unique identifier of an [`Account`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, FromRow)]
 #[serde(try_from = "&str", into = "String")]
 pub struct Id(Uuid);
 
 impl Id {
+    /// Generate a new [`Id`]
     pub fn generate() -> Self {
         Self(Uuid::new_v4())
     }
 
+    /// Underlying [`Uuid`] of the [`Id`]
     pub fn uuid(&self) -> &Uuid {
         &self.0
     }
@@ -48,20 +53,28 @@ impl From<Id> for String {
     }
 }
 
+/// Details for an account registered with this service
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Account {
+    /// Unique identifier of the account
     #[sqlx(rename = "account_id", try_from = "Uuid")]
     pub id: Id,
+    /// Account type
     #[sqlx(rename = "type", try_from = "&'a str")]
     pub kind: Kind,
+    /// Username
     pub username: String,
+    /// Email
     pub email: String,
+    /// Name
     pub name: String,
+    /// Public key used for authentication
     #[sqlx(try_from = "String")]
     pub public_key: EncodedPublicKey,
 }
 
 impl Account {
+    /// Get the account for [`Id`] from the provided [`Database`]
     pub async fn get(db: &Database, id: Id) -> Result<Self, Error> {
         let account: Account = sqlx::query_as(
             "
@@ -83,6 +96,7 @@ impl Account {
         Ok(account)
     }
 
+    /// Lookup an account using `username` and `publickey` from the provided [`Database`]
     pub async fn lookup_with_credentials(
         db: &Database,
         username: &str,
@@ -112,6 +126,7 @@ impl Account {
         Ok(account)
     }
 
+    /// Create / update this account to the provided [`Database`]
     pub async fn save<'c>(
         &self,
         conn: impl sqlx::Executor<'c, Database = sqlx::Sqlite>,
@@ -149,23 +164,32 @@ impl Account {
     }
 }
 
+/// Type of account
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, strum::Display)]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum Kind {
+    /// Admin account
     Admin,
+    /// Standard account
     Standard,
+    /// Bot account
     Bot,
+    /// Service account (endpoint)
     Service,
 }
 
+/// [`Account`] token provisioned for the account after authentication
 #[derive(Debug, Clone, FromRow)]
 pub struct Token {
+    /// Encoded token string
     pub encoded: String,
+    /// Token expiration time
     pub expiration: DateTime<Utc>,
 }
 
 impl Token {
+    /// Set the account token & expiration related to [`Id`] for the provided [`Database`]
     pub async fn set(
         db: &Database,
         id: Id,
@@ -195,6 +219,7 @@ impl Token {
         Ok(())
     }
 
+    /// Get the account token for [`Id`] from the provided [`Database`]
     pub async fn get(db: &Database, id: Id) -> Result<Token, Error> {
         let token: Token = sqlx::query_as(
             "
@@ -213,11 +238,16 @@ impl Token {
     }
 }
 
+/// Admin account details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Admin {
+    /// Admin username
     pub username: String,
+    /// Admin name
     pub name: String,
+    /// Admin email
     pub email: String,
+    /// Admin public key
     pub public_key: EncodedPublicKey,
 }
 
@@ -283,8 +313,10 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
     Ok(())
 }
 
+/// An account error
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Database error occurred
     #[error("database")]
     Database(#[from] database::Error),
 }

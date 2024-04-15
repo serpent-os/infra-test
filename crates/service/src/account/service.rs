@@ -1,3 +1,4 @@
+//! A [`Service`] implementing the [`AccountService`] interface
 use std::sync::Arc;
 
 use base64::Engine;
@@ -23,23 +24,30 @@ use crate::{
     Account, Database, Role, Token,
 };
 
+pub use super::proto::account_service_server::AccountService;
 pub use super::proto::TokenResponse;
 use super::proto::{
-    self, account_service_server::AccountService, authenticate_request, authenticate_response,
-    AuthenticateRequest, AuthenticateResponse, Credentials,
+    self, authenticate_request, authenticate_response, AuthenticateRequest, AuthenticateResponse,
+    Credentials,
 };
 
+/// A gRPC server capable of routing [`AccountService`] requests to be handled by [`Service`]
 pub type Server = proto::account_service_server::AccountServiceServer<Service>;
+/// A client that can connect to and call the [`AccountService`] interface
 pub type Client<T> = proto::account_service_client::AccountServiceClient<T>;
 
+/// An implementation of the [`AccountService`] interface
 pub struct Service {
+    /// Shared database of this service
     pub db: Database,
+    /// Key pair of this service
     pub key_pair: KeyPair,
+    /// Role of this service
     pub role: Role,
 }
 
 impl Service {
-    pub fn authenticate(
+    fn authenticate(
         &self,
         request: tonic::Request<tonic::Streaming<AuthenticateRequest>>,
     ) -> impl Stream<Item = Result<AuthenticateResponse, Error>> + 'static {
@@ -263,6 +271,7 @@ impl AccountService for Service {
     }
 }
 
+/// Authenticate with the [`AccountService`] at [`Uri`] using the provided `username` and `KeyPair` credentials.
 pub async fn authenticate(
     uri: Uri,
     username: String,
@@ -344,33 +353,46 @@ fn create_token(
     Ok((token, expires_on))
 }
 
+/// An error when handling an [`AccountService`] request
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Account not issued an account token
     #[error("Account not issued an account token")]
     NoIssuedAccountToken,
+    /// Request token doesn't match current account token
     #[error("Request token doesn't match current account token")]
     NotCurrentAccountToken,
+    /// Token missing from request
     #[error("Token missing from request")]
     MissingRequestToken,
+    /// Request is malformed
     #[error("Malformed request")]
     MalformedRequest,
+    /// Public key cannot be decoded
     #[error("malformed public key")]
     MalformedPublicKey(#[source] crypto::Error),
+    /// Challenge signature cannot be decoded
     #[error("malformed signature")]
     MalformedSignature(#[source] crypto::Error),
+    /// Signature is not valid
     #[error("signature verification")]
     InvalidSignature(#[source] crypto::Error),
+    /// Saving account token failed
     #[error("saving new account token")]
     SaveAccountToken(#[source] account::Error),
+    /// Reading account token failed
     #[error("reading account token")]
     ReadAccountToken(#[source] account::Error),
+    /// Reading [`Account`] failed
     #[error("reading account")]
     ReadAccount(#[source] account::Error),
-    // TODO: slog so we don't have to keep decorating shit for our errors
+    /// Account lookup by credentials failed
     #[error("account lookup for username {0}, public_key {1}")]
     AccountLookup(String, EncodedPublicKey, #[source] account::Error),
+    /// Signing token failed
     #[error("sign token")]
     SignToken(#[source] token::Error),
+    /// gRPC request failed
     #[error(transparent)]
     Request(#[from] tonic::Status),
 }
@@ -397,14 +419,19 @@ impl From<Error> for tonic::Status {
     }
 }
 
+/// A [`Client`] error
 #[derive(Debug, Error)]
 pub enum ClientError {
+    /// Request is malformed
     #[error("Malformed request")]
     MalformedRequest,
+    /// Stream closed
     #[error("Stream closed")]
     StreamClosed,
+    /// gRPC transport error
     #[error("transport")]
     Transport(#[from] transport::Error),
+    /// gRPC request failed
     #[error(transparent)]
     Request(#[from] tonic::Status),
 }
