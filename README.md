@@ -1,5 +1,7 @@
 # Infra Test
 
+[![docs](https://img.shields.io/badge/docs-passing-brightgreen)](https://serpent-os.github.io/infra-test/)
+
 Test bed for infra in rust
 
 ## Testing
