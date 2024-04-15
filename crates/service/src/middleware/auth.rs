@@ -15,11 +15,7 @@ use crate::{
 /// Validate the provided `request` against `validation_flags` and return an
 /// error if the request doesn't pass the required validation.
 pub fn auth<T>(request: &tonic::Request<T>, validation_flags: Flags) -> Result<(), tonic::Status> {
-    let request_flags = request
-        .extensions()
-        .get::<Flags>()
-        .copied()
-        .unwrap_or_default();
+    let request_flags = request.extensions().get::<Flags>().copied().unwrap_or_default();
 
     let validation_names = flag_names(validation_flags);
     let token_names = flag_names(request_flags);
@@ -97,20 +93,14 @@ pub struct Service<S> {
 
 impl<S> tower::Service<http::Request<Body>> for Service<S>
 where
-    S: tower::Service<http::Request<Body>, Response = http::Response<BoxBody>>
-        + Clone
-        + Send
-        + 'static,
+    S: tower::Service<http::Request<Body>, Response = http::Response<BoxBody>> + Clone + Send + 'static,
     S::Future: Send + 'static,
 {
     type Response = S::Response;
     type Error = S::Error;
     type Future = S::Future;
 
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
         tower::Service::poll_ready(&mut self.inner, cx)
     }
 
@@ -151,10 +141,7 @@ where
             let account = Some(token.decoded.payload.account_id.to_string());
             let account_type = Some(token.decoded.payload.account_type.to_string());
 
-            debug!(
-                ?token_flags,
-                token_purpose, account, account_type, "Auth parsed"
-            );
+            debug!(?token_flags, token_purpose, account, account_type, "Auth parsed");
         }
 
         req.extensions_mut().insert(flags);
@@ -163,11 +150,7 @@ where
     }
 }
 
-fn extract_token(
-    req: &http::Request<Body>,
-    pub_key: &PublicKey,
-    validation: &Validation,
-) -> Option<VerifiedToken> {
+fn extract_token(req: &http::Request<Body>, pub_key: &PublicKey, validation: &Validation) -> Option<VerifiedToken> {
     let header = req.headers().get("authorization")?;
     let token_str = header.to_str().ok()?.strip_prefix("Bearer ")?;
 
@@ -181,8 +164,5 @@ fn extract_token(
 }
 
 fn flag_names(flags: Flags) -> Vec<String> {
-    flags
-        .iter_names()
-        .map(|(name, _)| name.to_string())
-        .collect()
+    flags.iter_names().map(|(name, _)| name.to_string()).collect()
 }

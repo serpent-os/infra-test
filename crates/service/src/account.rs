@@ -127,10 +127,7 @@ impl Account {
     }
 
     /// Create / update this account to the provided [`Database`]
-    pub async fn save<'c>(
-        &self,
-        conn: impl sqlx::Executor<'c, Database = sqlx::Sqlite>,
-    ) -> Result<(), Error> {
+    pub async fn save<'c>(&self, conn: impl sqlx::Executor<'c, Database = sqlx::Sqlite>) -> Result<(), Error> {
         sqlx::query(
             "
             INSERT INTO account
@@ -190,12 +187,7 @@ pub struct Token {
 
 impl Token {
     /// Set the account token & expiration related to [`Id`] for the provided [`Database`]
-    pub async fn set(
-        db: &Database,
-        id: Id,
-        encoded: impl ToString,
-        expiration: DateTime<Utc>,
-    ) -> Result<(), Error> {
+    pub async fn set(db: &Database, id: Id, encoded: impl ToString, expiration: DateTime<Utc>) -> Result<(), Error> {
         sqlx::query(
             "
             INSERT INTO account_token

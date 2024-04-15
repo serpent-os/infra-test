@@ -27,8 +27,7 @@ use crate::{
 pub use super::proto::account_service_server::AccountService;
 pub use super::proto::TokenResponse;
 use super::proto::{
-    self, authenticate_request, authenticate_response, AuthenticateRequest, AuthenticateResponse,
-    Credentials,
+    self, authenticate_request, authenticate_response, AuthenticateRequest, AuthenticateResponse, Credentials,
 };
 
 /// A gRPC server capable of routing [`AccountService`] requests to be handled by [`Service`]
@@ -75,113 +74,90 @@ impl Service {
             role: self.role,
         };
 
-        stream::try_unfold(
-            (request.into_inner(), state),
-            |(mut incoming, state)| async move {
-                let Some(request) = incoming.next().await else {
-                    return Ok(None);
-                };
+        stream::try_unfold((request.into_inner(), state), |(mut incoming, state)| async move {
+            let Some(request) = incoming.next().await else {
+                return Ok(None);
+            };
 
-                let body = request
-                    .map_err(Error::Request)?
-                    .body
-                    .ok_or(Error::MalformedRequest)?;
+            let body = request.map_err(Error::Request)?.body.ok_or(Error::MalformedRequest)?;
 
-                match (state, body) {
-                    (
-                        State::Idle { db, key_pair, role },
-                        authenticate_request::Body::Credentials(Credentials {
-                            username,
-                            public_key,
-                        }),
-                    ) => {
-                        let public_key = EncodedPublicKey::decode(&public_key)
-                            .map_err(Error::MalformedPublicKey)?;
-                        let encoded_public_key = public_key.encode();
+            match (state, body) {
+                (
+                    State::Idle { db, key_pair, role },
+                    authenticate_request::Body::Credentials(Credentials { username, public_key }),
+                ) => {
+                    let public_key = EncodedPublicKey::decode(&public_key).map_err(Error::MalformedPublicKey)?;
+                    let encoded_public_key = public_key.encode();
 
-                        let account =
-                            Account::lookup_with_credentials(&db, &username, &encoded_public_key)
-                                .await
-                                .map_err(|error| {
-                                    Error::AccountLookup(
-                                        username.clone(),
-                                        encoded_public_key.clone(),
-                                        error,
-                                    )
-                                })?;
+                    let account = Account::lookup_with_credentials(&db, &username, &encoded_public_key)
+                        .await
+                        .map_err(|error| Error::AccountLookup(username.clone(), encoded_public_key.clone(), error))?;
 
-                        let mut rand = rand::thread_rng();
-                        let mut challenge = String::default();
-                        base64::prelude::BASE64_STANDARD_NO_PAD
-                            .encode_string(rand.gen::<[u8; 16]>(), &mut challenge);
+                    let mut rand = rand::thread_rng();
+                    let mut challenge = String::default();
+                    base64::prelude::BASE64_STANDARD_NO_PAD.encode_string(rand.gen::<[u8; 16]>(), &mut challenge);
 
-                        debug!(account = %account.id, challenge, "Authenticate challenge created");
+                    debug!(account = %account.id, challenge, "Authenticate challenge created");
 
-                        Ok(Some((
-                            AuthenticateResponse {
-                                body: Some(authenticate_response::Body::Challenge(
-                                    challenge.clone(),
-                                )),
-                            },
-                            (
-                                incoming,
-                                State::ChallengeSent {
-                                    db,
-                                    key_pair,
-                                    role,
-                                    account,
-                                    public_key,
-                                    challenge,
-                                },
-                            ),
-                        )))
-                    }
-                    (
-                        State::ChallengeSent {
-                            db,
-                            key_pair,
-                            role,
-                            account,
-                            public_key,
-                            challenge,
+                    Ok(Some((
+                        AuthenticateResponse {
+                            body: Some(authenticate_response::Body::Challenge(challenge.clone())),
                         },
-                        authenticate_request::Body::Signature(signature),
-                    ) => {
-                        let signature = EncodedSignature::decode(&signature)
-                            .map_err(Error::MalformedSignature)?;
-
-                        public_key
-                            .verify(challenge.as_bytes(), &signature)
-                            .map_err(Error::InvalidSignature)?;
-
-                        let (account_token, expires_on) =
-                            create_token(&key_pair, &account, role, token::Purpose::Account)?;
-                        let (api_token, _) =
-                            create_token(&key_pair, &account, role, token::Purpose::Api)?;
-
-                        account::Token::set(&db, account.id, &account_token, expires_on)
-                            .await
-                            .map_err(Error::SaveAccountToken)?;
-
-                        debug!(
-                            account = %account.id,
-                            "Authenticate successful",
-                        );
-
-                        Ok(Some((
-                            AuthenticateResponse {
-                                body: Some(authenticate_response::Body::Tokens(TokenResponse {
-                                    account_token,
-                                    api_token,
-                                })),
+                        (
+                            incoming,
+                            State::ChallengeSent {
+                                db,
+                                key_pair,
+                                role,
+                                account,
+                                public_key,
+                                challenge,
                             },
-                            (incoming, State::Finished),
-                        )))
-                    }
-                    _ => Err(Error::MalformedRequest),
+                        ),
+                    )))
                 }
-            },
-        )
+                (
+                    State::ChallengeSent {
+                        db,
+                        key_pair,
+                        role,
+                        account,
+                        public_key,
+                        challenge,
+                    },
+                    authenticate_request::Body::Signature(signature),
+                ) => {
+                    let signature = EncodedSignature::decode(&signature).map_err(Error::MalformedSignature)?;
+
+                    public_key
+                        .verify(challenge.as_bytes(), &signature)
+                        .map_err(Error::InvalidSignature)?;
+
+                    let (account_token, expires_on) = create_token(&key_pair, &account, role, token::Purpose::Account)?;
+                    let (api_token, _) = create_token(&key_pair, &account, role, token::Purpose::Api)?;
+
+                    account::Token::set(&db, account.id, &account_token, expires_on)
+                        .await
+                        .map_err(Error::SaveAccountToken)?;
+
+                    debug!(
+                        account = %account.id,
+                        "Authenticate successful",
+                    );
+
+                    Ok(Some((
+                        AuthenticateResponse {
+                            body: Some(authenticate_response::Body::Tokens(TokenResponse {
+                                account_token,
+                                api_token,
+                            })),
+                        },
+                        (incoming, State::Finished),
+                    )))
+                }
+                _ => Err(Error::MalformedRequest),
+            }
+        })
         .instrument(info_span!("authenticate"))
     }
 
@@ -194,9 +170,7 @@ impl Service {
 
         let token::Payload { account_id, .. } = request_token.decoded.payload;
 
-        let account = Account::get(&self.db, account_id)
-            .await
-            .map_err(Error::ReadAccount)?;
+        let account = Account::get(&self.db, account_id).await.map_err(Error::ReadAccount)?;
 
         // Confirm this is their current account token
         let current_token = account::Token::get(&self.db, account_id)
@@ -210,10 +184,8 @@ impl Service {
         // We've already validated it's not expired in auth middleware
         // Looks good! Let's issue a new pair
 
-        let (account_token, expires_on) =
-            create_token(&self.key_pair, &account, self.role, token::Purpose::Account)?;
-        let (api_token, _) =
-            create_token(&self.key_pair, &account, self.role, token::Purpose::Api)?;
+        let (account_token, expires_on) = create_token(&self.key_pair, &account, self.role, token::Purpose::Account)?;
+        let (api_token, _) = create_token(&self.key_pair, &account, self.role, token::Purpose::Api)?;
 
         // Update their account token to the newly issued one
         account::Token::set(&self.db, account_id, &account_token, expires_on)
@@ -262,21 +234,14 @@ impl AccountService for Service {
         request: tonic::Request<()>,
     ) -> Result<tonic::Response<TokenResponse>, tonic::Status> {
         // Must have a non-expired account token
-        auth(
-            &request,
-            auth::Flags::ACCOUNT_TOKEN | auth::Flags::NOT_EXPIRED,
-        )?;
+        auth(&request, auth::Flags::ACCOUNT_TOKEN | auth::Flags::NOT_EXPIRED)?;
 
         log_handler(self.refresh_token(request).await)
     }
 }
 
 /// Authenticate with the [`AccountService`] at [`Uri`] using the provided `username` and `KeyPair` credentials.
-pub async fn authenticate(
-    uri: Uri,
-    username: String,
-    key_pair: KeyPair,
-) -> Result<TokenResponse, ClientError> {
+pub async fn authenticate(uri: Uri, username: String, key_pair: KeyPair) -> Result<TokenResponse, ClientError> {
     let mut client = Client::connect(uri).await?;
 
     let (request_tx, request_rx) = mpsc::channel(1);
@@ -298,8 +263,7 @@ pub async fn authenticate(
             return;
         };
 
-        let signature = base64::prelude::BASE64_STANDARD_NO_PAD
-            .encode(key_pair.sign(challenge.as_bytes()).to_bytes());
+        let signature = base64::prelude::BASE64_STANDARD_NO_PAD.encode(key_pair.sign(challenge.as_bytes()).to_bytes());
 
         let _ = request_tx
             .send(AuthenticateRequest {
@@ -318,8 +282,7 @@ pub async fn authenticate(
 
     let _ = challenge_tx.send(challenge).await;
 
-    let Some(authenticate_response::Body::Tokens(tokens)) =
-        resp.next().await.ok_or(ClientError::StreamClosed)??.body
+    let Some(authenticate_response::Body::Tokens(tokens)) = resp.next().await.ok_or(ClientError::StreamClosed)??.body
     else {
         return Err(ClientError::MalformedRequest);
     };

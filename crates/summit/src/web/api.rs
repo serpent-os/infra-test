@@ -37,9 +37,7 @@ impl<T> Body<T> {
     }
 
     pub fn error(error: impl Into<Error>) -> Self {
-        Self::Error {
-            error: error.into(),
-        }
+        Self::Error { error: error.into() }
     }
 }
 

@@ -283,9 +283,7 @@ impl<'a> FromRow<'a, sqlx::sqlite::SqliteRow> for Kind {
 
         match (row.role, row.work_status) {
             (Role::Builder, Some(value)) => {
-                let work_status = value
-                    .parse()
-                    .map_err(|e| sqlx::Error::Decode(Box::from(e)))?;
+                let work_status = value.parse().map_err(|e| sqlx::Error::Decode(Box::from(e)))?;
                 Ok(Kind::Builder(builder::Extension { work_status }))
             }
             (Role::Builder, _) => Err(sqlx::Error::Decode(Box::from(

@@ -25,12 +25,7 @@ use crate::{
 };
 
 /// Start the [`Server`] without additional configuration
-pub async fn start<T>(
-    bind: impl Into<SocketAddr>,
-    role: Role,
-    config: &Config<T>,
-    state: &State,
-) -> Result<(), Error> {
+pub async fn start<T>(bind: impl Into<SocketAddr>, role: Role, config: &Config<T>, state: &State) -> Result<(), Error> {
     Server::new(role, config, state).start(bind).await
 }
 
@@ -93,8 +88,7 @@ where
     L: Layer<Routes>,
     L::Service: Service<Request<Body>, Response = Response<BoxBody>> + Clone + Send + 'static,
     <L::Service as Service<Request<Body>>>::Future: Send + 'static,
-    <L::Service as Service<Request<Body>>>::Error:
-        Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+    <L::Service as Service<Request<Body>>>::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
 {
     /// Add a custom tower [`Service`] to the server. This can be used by consumers
     /// to add additional services, such as custom tonic gRPC service handlers.

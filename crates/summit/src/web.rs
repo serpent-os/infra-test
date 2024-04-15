@@ -19,8 +19,7 @@ pub async fn serve(
     assets: impl AsRef<Path>,
     state: State,
 ) -> Result<impl Future<Output = Result<(), io::Error>> + Send> {
-    let static_dir =
-        ServeDir::new(&assets).not_found_service(ServeFile::new(assets.as_ref().join("404.html")));
+    let static_dir = ServeDir::new(&assets).not_found_service(ServeFile::new(assets.as_ref().join("404.html")));
 
     let app = Router::new()
         .nest("/api/v1", api::router())

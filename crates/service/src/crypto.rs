@@ -31,13 +31,9 @@ impl KeyPair {
     /// Reconstruct a [`KeyPair`] from raw private key bytes, such as
     /// returned by [`KeyPair::to_bytes`].
     pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self(ed25519_dalek::SigningKey::from_bytes(
-            bytes
-                .try_into()
-                .map_err(|_| Error::InvalidPrivateKeyLength {
-                    actual: bytes.len(),
-                })?,
-        )))
+        Ok(Self(ed25519_dalek::SigningKey::from_bytes(bytes.try_into().map_err(
+            |_| Error::InvalidPrivateKeyLength { actual: bytes.len() },
+        )?)))
     }
 
     /// The public key half of this key pair
@@ -58,8 +54,7 @@ impl KeyPair {
     /// Load a PEM encoded PKCS8 private key from the provided path
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         Ok(Self(
-            ed25519_dalek::SigningKey::read_pkcs8_pem_file(path)
-                .map_err(Error::LoadPemPrivateKey)?,
+            ed25519_dalek::SigningKey::read_pkcs8_pem_file(path).map_err(Error::LoadPemPrivateKey)?,
         ))
     }
 }
@@ -77,9 +72,7 @@ impl PublicKey {
 
     /// Verify a signature on a message with this keypair's public key
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<(), Error> {
-        self.0
-            .verify_strict(message, signature)
-            .map_err(Error::VerifySignature)
+        self.0.verify_strict(message, signature).map_err(Error::VerifySignature)
     }
 }
 
@@ -165,10 +158,7 @@ pub enum Error {
     #[error("load pem private key")]
     LoadPemPrivateKey(#[source] ed25519_dalek::pkcs8::Error),
     /// Invalid private key length
-    #[error(
-        "invalid private key length, expected {} got {actual}",
-        SECRET_KEY_LENGTH
-    )]
+    #[error("invalid private key length, expected {} got {actual}", SECRET_KEY_LENGTH)]
     InvalidPrivateKeyLength {
         /// Actual size
         actual: usize,

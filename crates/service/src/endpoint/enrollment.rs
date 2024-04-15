@@ -234,25 +234,18 @@ impl Received {
 
         info!("Created a new endpoint for the service account");
 
-        let account_token =
-            create_account_token(endpoint_id, account_id, self.remote.role, &ourself)?;
+        let account_token = create_account_token(endpoint_id, account_id, self.remote.role, &ourself)?;
 
-        account::Token::set(
-            db,
-            account_id,
-            &account_token.encoded,
-            account_token.expires(),
-        )
-        .await
-        .map_err(Error::SetAccountToken)?;
+        account::Token::set(db, account_id, &account_token.encoded, account_token.expires())
+            .await
+            .map_err(Error::SetAccountToken)?;
 
         info!(
             expiration = %account_token.expires(),
             "Account token created",
         );
 
-        let mut client =
-            service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
+        let mut client = service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
 
         let resp = client
             .accept(EnrollmentRequest {
@@ -265,10 +258,7 @@ impl Received {
         match resp {
             Ok(_) => {
                 endpoint.status = endpoint::Status::Operational;
-                endpoint
-                    .save(db)
-                    .await
-                    .map_err(Error::UpdateEndpointStatus)?;
+                endpoint.save(db).await.map_err(Error::UpdateEndpointStatus)?;
 
                 info!("Accepted endpoint now operational");
 
@@ -277,10 +267,7 @@ impl Received {
             Err(error) => {
                 endpoint.status = endpoint::Status::Failed;
                 endpoint.error = Some(error.message().to_string());
-                endpoint
-                    .save(db)
-                    .await
-                    .map_err(Error::UpdateEndpointStatus)?;
+                endpoint.save(db).await.map_err(Error::UpdateEndpointStatus)?;
 
                 Err(Error::Grpc(error))
             }
@@ -289,8 +276,7 @@ impl Received {
 
     /// Decline the received enrollment
     pub async fn decline(self) -> Result<(), Error> {
-        let mut client =
-            service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
+        let mut client = service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
 
         client.decline(()).await?;
 
@@ -380,16 +366,9 @@ impl Sent {
 /// Send an initial enrollment to [`Target`] if the
 /// endpoint is not yet configured and operational
 #[tracing::instrument(skip_all)]
-pub async fn send_initial_enrollment(
-    target: Target,
-    ourself: Issuer,
-    state: State,
-) -> Result<(), Error> {
+pub async fn send_initial_enrollment(target: Target, ourself: Issuer, state: State) -> Result<(), Error> {
     // If we're paired & operational, we don't need to resend
-    for endpoint in Endpoint::list(&state.db)
-        .await
-        .map_err(Error::ListEndpoints)?
-    {
+    for endpoint in Endpoint::list(&state.db).await.map_err(Error::ListEndpoints)? {
         let account = Account::get(&state.db, endpoint.account)
             .await
             .map_err(Error::ReadAccount)?;
@@ -409,11 +388,7 @@ pub async fn send_initial_enrollment(
 
     let sent = send(target, ourself).await?;
 
-    state
-        .pending_enrollment
-        .sent
-        .insert(sent.endpoint, sent)
-        .await;
+    state.pending_enrollment.sent.insert(sent.endpoint, sent).await;
 
     Ok(())
 }

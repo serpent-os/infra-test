@@ -29,11 +29,7 @@ impl Token {
     }
 
     /// Verify and return a decoded token
-    pub fn verify(
-        token: &str,
-        public_key: &PublicKey,
-        validation: &Validation,
-    ) -> Result<VerifiedToken, Error> {
+    pub fn verify(token: &str, public_key: &PublicKey, validation: &Validation) -> Result<VerifiedToken, Error> {
         let decoded = jsonwebtoken::decode::<Payload>(
             token,
             // This actually takes the compressed bytes and not
@@ -103,10 +99,7 @@ impl Default for Validation {
         // Expiration is evaluated in the authentication layer
         validation.validate_exp = false;
         validation.validate_aud = false;
-        validation.required_spec_claims = ["aud", "exp", "iss", "sub"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        validation.required_spec_claims = ["aud", "exp", "iss", "sub"].into_iter().map(String::from).collect();
 
         Self(validation)
     }
