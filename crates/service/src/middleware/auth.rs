@@ -40,7 +40,7 @@ pub fn auth<T>(request: &tonic::Request<T>, validation_flags: Flags) -> Result<(
 /// Middleware to extract auth token and decorate request with [`Flags`],
 /// allowing downstream handlers to assess permissions via [`auth`] function.
 ///
-/// If an auth token is on the request and verified using [`Verification`],
+/// If an auth token is on the request and verified using [`Validation`],
 /// [`VerifiedToken`] will be added as an extension.
 #[derive(Debug, Clone)]
 pub struct Auth {

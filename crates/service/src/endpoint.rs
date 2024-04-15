@@ -219,7 +219,7 @@ impl Tokens {
     }
 }
 
-/// Status of the [`Endpooint`]
+/// Status of the [`Endpoint`]
 #[derive(Debug, Clone, Copy, strum::Display, strum::EnumString, Serialize)]
 #[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
