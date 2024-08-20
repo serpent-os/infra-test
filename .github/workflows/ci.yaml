@@ -35,13 +35,7 @@ jobs:
       run: sudo apt install -y protobuf-compiler
 
     - name: Cargo Cache
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      uses: Swatinem/rust-cache@v2
 
     - name: Build project
       run: cargo build
