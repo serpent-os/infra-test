@@ -1,428 +1,251 @@
-//! A [`Service`] implementing the [`EndpointService`] interface
-
-use std::sync::Arc;
+//! An implementation of endpoint service operations
 
 use http::Uri;
 use thiserror::Error;
-use tonic::{
-    service::{interceptor::InterceptedService, Interceptor},
-    transport::Channel,
-};
 use tracing::{debug, error, info};
 
-use super::enrollment::{self, Issuer};
-use super::proto::{self, EndpointArray, EndpointId, EndpointRole, EnrollmentRequest};
 use crate::{
-    account,
-    crypto::EncodedPublicKey,
-    endpoint,
-    middleware::{auth, log_handler},
-    token::{self, VerifiedToken},
-    Database, Role, Token,
+    account, api,
+    crypto::{EncodedPublicKey, PublicKey},
+    endpoint::{
+        self,
+        enrollment::{self, Issuer},
+    },
+    sync::SharedMap,
+    token, Config, Database, Role, Token,
 };
 
-pub use super::proto::endpoint_service_server::EndpointService;
+/// An implementation of the endpoint service operations
+pub fn service(role: Role, config: &Config, state: &crate::State) -> api::Service {
+    api::Service::new()
+        .register::<api::v1::services::Enroll, Error, _>(enroll)
+        .register::<api::v1::services::Accept, Error, _>(accept)
+        .register::<api::v1::services::Decline, Error, _>(decline)
+        .register::<api::v1::services::RefreshToken, Error, _>(refresh_token)
+        .register::<api::v1::services::RefreshIssueToken, Error, _>(refresh_issue_token)
+        .with_state(State {
+            issuer: config.issuer(role, state.key_pair.clone()),
+            db: state.db.clone(),
+            pending_sent: state.pending_sent.clone(),
+            upstream: config.upstream,
+        })
+}
 
-const ENROLLMENT_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
-    auth::Flags::NOT_EXPIRED.bits() | auth::Flags::ACCOUNT_TOKEN.bits() | auth::Flags::SERVICE_ACCOUNT.bits(),
-);
-const ADMIN_FLAGS: auth::Flags = auth::Flags::from_bits_truncate(
-    auth::Flags::NOT_EXPIRED.bits() | auth::Flags::API_TOKEN.bits() | auth::Flags::ADMIN_ACCOUNT.bits(),
-);
-
-/// A gRPC server capable of routing [`EndpointService`] requests to be handled by [`Service`]
-pub type Server = proto::endpoint_service_server::EndpointServiceServer<Service>;
-
-/// An implementation of the [`EndpointService`] interface
-pub struct Service {
+/// State for endpoint handlers
+#[derive(Debug, Clone)]
+pub struct State {
     /// Issuer details of this service
-    pub issuer: Issuer,
+    issuer: Issuer,
     /// Shared database of this service
-    pub db: Database,
+    db: Database,
     /// Pending enrollment requests that are awaiting confirmation
-    pub pending_enrollment: enrollment::Pending,
+    ///
+    /// Only applicable for hub service
+    pending_sent: SharedMap<endpoint::Id, enrollment::Sent>,
+    /// Upstream hub to auto-accept enrollment with
+    ///
+    /// Only applicable for non-hub services
+    upstream: Option<PublicKey>,
 }
 
-impl Service {
-    fn role(&self) -> EndpointRole {
-        self.issuer.role.into()
-    }
-
-    async fn enroll(&self, request: tonic::Request<EnrollmentRequest>) -> Result<(), Error> {
-        let request = request.into_inner();
-
-        // Proto3 makes all message types optional for backwards compatibility
-        let issuer = request.issuer.as_ref().ok_or(Error::MalformedRequest)?;
-        let public_key = EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
-        let verified_token = Token::verify(&request.account_token, &public_key, &token::Validation::new())
-            .map_err(Error::VerifyToken)?;
-
-        if !matches!(verified_token.decoded.payload.purpose, token::Purpose::Account) {
-            return Err(Error::RequireAccountToken);
-        }
-        if request.role() != self.role() {
-            return Err(Error::RoleMismatch {
-                expected: self.role(),
-                provided: request.role(),
-            });
-        }
-
-        info!(
-            public_key = issuer.public_key,
-            url = issuer.url,
-            role = %Role::from(issuer.role()),
-            email = issuer.admin_email,
-            "Enrollment requested"
-        );
-
-        let endpoint = endpoint::Id::generate();
-        let account = account::Id::generate();
-
-        debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
-
-        self.pending_enrollment
-            .received
-            .insert(
-                endpoint,
-                enrollment::Received {
-                    endpoint,
-                    account,
-                    remote: enrollment::Remote {
-                        host_address: issuer.url.parse::<Uri>()?,
-                        public_key,
-                        description: issuer.description.clone(),
-                        admin_email: issuer.admin_email.clone(),
-                        admin_name: issuer.admin_name.clone(),
-                        role: issuer.role().into(),
-                        token: verified_token,
-                    },
-                },
-            )
-            .await;
-
-        Ok(())
-    }
-
-    async fn accept(&self, request: tonic::Request<EnrollmentRequest>) -> Result<(), Error> {
-        let token = request
-            .extensions()
-            .get::<VerifiedToken>()
-            .cloned()
-            .ok_or(Error::MissingRequestToken)?;
-
-        let request = request.into_inner();
-
-        let issuer = request.issuer.as_ref().ok_or(Error::MalformedRequest)?;
-        let public_key = EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
-        let verified_token = Token::verify(&request.account_token, &public_key, &token::Validation::new())
-            .map_err(Error::VerifyToken)?;
-
-        if !matches!(verified_token.decoded.payload.purpose, token::Purpose::Account) {
-            return Err(Error::RequireAccountToken);
-        }
-        if request.role() != self.role() {
-            return Err(Error::RoleMismatch {
-                expected: self.role(),
-                provided: request.role(),
-            });
-        }
-
-        let endpoint = token
-            .decoded
-            .payload
-            .sub
-            .parse::<endpoint::Id>()
-            .map_err(Error::InvalidEndpoint)?;
-
-        info!(
-            %endpoint,
-            public_key = issuer.public_key,
-            url = issuer.url,
-            role = %Role::from(issuer.role()),
-            email = issuer.admin_email,
-            "Enrollment accepted"
-        );
-
-        self.pending_enrollment
-            .sent
-            .remove(&endpoint)
-            .await
-            .ok_or(Error::MissingPendingEnrollment(endpoint))?
-            .accepted(
-                &self.db,
-                enrollment::Remote {
-                    host_address: issuer.url.parse::<Uri>()?,
-                    public_key,
-                    description: issuer.description.clone(),
-                    admin_email: issuer.admin_email.clone(),
-                    admin_name: issuer.admin_name.clone(),
-                    role: issuer.role().into(),
-                    token: verified_token,
-                },
-            )
-            .await?;
-
-        Ok(())
-    }
-
-    async fn decline(&self, request: tonic::Request<()>) -> Result<(), Error> {
-        let token = request
-            .extensions()
-            .get::<VerifiedToken>()
-            .cloned()
-            .ok_or(Error::MissingRequestToken)?;
-
-        let endpoint = token
-            .decoded
-            .payload
-            .sub
-            .parse::<endpoint::Id>()
-            .map_err(Error::InvalidEndpoint)?;
-
-        if let Some(enrollment) = self.pending_enrollment.sent.remove(&endpoint).await {
-            info!(
-                %endpoint,
-                public_key = %enrollment.target.public_key,
-                url = %enrollment.target.host_address,
-                role = %enrollment.target.role,
-                "Enrollment declined"
-            );
-        }
-
-        Ok(())
-    }
-
-    async fn pending(&self, _request: tonic::Request<()>) -> Result<EndpointArray, Error> {
-        let endpoints = self
-            .pending_enrollment
-            .received
-            .all()
-            .await
-            .into_values()
-            .map(|enrollment| proto::Endpoint {
-                id: Some(proto::EndpointId {
-                    id: enrollment.endpoint.to_string(),
-                }),
-                host_address: enrollment.remote.host_address.to_string(),
-                public_key: enrollment.remote.public_key.encode().to_string(),
-                status: proto::EndpointStatus::AwaitingAcceptance as i32,
-            })
-            .collect();
-
-        Ok(EndpointArray { endpoints })
-    }
-
-    async fn accept_pending(&self, request: tonic::Request<EndpointId>) -> Result<(), Error> {
-        let request = request.into_inner();
-        let endpoint = request.id.parse::<endpoint::Id>().map_err(Error::InvalidEndpoint)?;
-
-        let enrollment = self
-            .pending_enrollment
-            .received
-            .remove(&endpoint)
-            .await
-            .ok_or(Error::MissingPendingEnrollment(endpoint))?;
-
-        info!(
-            %endpoint,
-            public_key = %enrollment.remote.public_key,
-            url = %enrollment.remote.host_address,
-            role = %enrollment.remote.role,
-            email = enrollment.remote.admin_email,
-            "Pending enrollment accepted"
-        );
-
-        enrollment
-            .accept(&self.db, self.issuer.clone())
-            .await
-            .map_err(Error::Enrollment)?;
-
-        Ok(())
-    }
-
-    async fn decline_pending(&self, request: tonic::Request<EndpointId>) -> Result<(), Error> {
-        let request = request.into_inner();
-        let endpoint = request.id.parse::<endpoint::Id>().map_err(Error::InvalidEndpoint)?;
-
-        let enrollment = self
-            .pending_enrollment
-            .received
-            .remove(&endpoint)
-            .await
-            .ok_or(Error::MissingPendingEnrollment(endpoint))?;
-
-        info!(
-            %endpoint,
-            public_key = %enrollment.remote.public_key,
-            url = %enrollment.remote.host_address,
-            role = %enrollment.remote.role,
-            email = enrollment.remote.admin_email,
-            "Pending enrollment declined"
-        );
-
-        enrollment.decline().await.map_err(Error::Enrollment)?;
-
-        Ok(())
+impl State {
+    fn role(&self) -> Role {
+        self.issuer.role
     }
 }
 
-#[tonic::async_trait]
-impl EndpointService for Service {
-    #[tracing::instrument(skip_all)]
-    async fn enroll(
-        &self,
-        request: tonic::Request<EnrollmentRequest>,
-    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        // Technically the same as omitting this check
-        auth(&request, auth::Flags::NO_AUTH)?;
+async fn enroll(request: api::Request<api::v1::services::Enroll>, state: State) -> Result<(), Error> {
+    let upstream = *state.upstream.as_ref().ok_or(Error::UpstreamNotSet)?;
 
-        if matches!(self.role(), EndpointRole::Hub) {
-            log_handler(self.enroll(request).await)
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
+    let request = request.body.request;
+    let issuer = request.issuer;
+    let issue_token = request.issue_token;
+
+    let public_key = EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
+
+    if public_key != upstream {
+        return Err(Error::UpstreamMismatch {
+            expected: upstream,
+            provided: public_key,
+        });
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn accept(
-        &self,
-        request: tonic::Request<EnrollmentRequest>,
-    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, ENROLLMENT_FLAGS)?;
+    let verified_token =
+        Token::verify(&issue_token, &public_key, &token::Validation::new()).map_err(Error::VerifyToken)?;
 
-        if !matches!(self.role(), EndpointRole::Hub) {
-            log_handler(self.accept(request).await)
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
+    if !matches!(verified_token.decoded.payload.purpose, token::Purpose::Authorization) {
+        return Err(Error::RequireBearerToken);
+    }
+    if request.role != state.role() {
+        return Err(Error::RoleMismatch {
+            expected: state.role(),
+            provided: request.role,
+        });
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn decline(&self, request: tonic::Request<()>) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, ENROLLMENT_FLAGS)?;
+    info!(
+        public_key = issuer.public_key,
+        url = issuer.url,
+        role = %issuer.role,
+        "Enrollment requested"
+    );
 
-        if !matches!(self.role(), EndpointRole::Hub) {
-            log_handler(self.decline(request).await)
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
+    let endpoint = endpoint::Id::generate();
+    let account = account::Id::generate();
+
+    debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
+
+    // We validated this is a legitimate request from the configured upstream
+    // so we can auto accept
+    enrollment::Received {
+        endpoint,
+        account,
+        remote: enrollment::Remote {
+            host_address: issuer.url.parse::<Uri>()?,
+            public_key,
+            role: issuer.role,
+            bearer_token: verified_token,
+        },
     }
+    .accept(&state.db, state.issuer.clone())
+    .await?;
 
-    #[tracing::instrument(skip_all)]
-    async fn leave(&self, request: tonic::Request<()>) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, ENROLLMENT_FLAGS)?;
-
-        if !matches!(self.role(), EndpointRole::Hub) {
-            Err(tonic::Status::unimplemented("unimplemented"))
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn pending(
-        &self,
-        request: tonic::Request<()>,
-    ) -> std::result::Result<tonic::Response<EndpointArray>, tonic::Status> {
-        auth(&request, ADMIN_FLAGS)?;
-
-        if matches!(self.role(), EndpointRole::Hub) {
-            log_handler(self.pending(request).await)
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn accept_pending(
-        &self,
-        request: tonic::Request<EndpointId>,
-    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, ADMIN_FLAGS)?;
-
-        if matches!(self.role(), EndpointRole::Hub) {
-            log_handler(self.accept_pending(request).await)
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn decline_pending(
-        &self,
-        request: tonic::Request<EndpointId>,
-    ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
-        auth(&request, ADMIN_FLAGS)?;
-
-        if matches!(self.role(), EndpointRole::Hub) {
-            log_handler(self.decline_pending(request).await)
-        } else {
-            Err(tonic::Status::unimplemented(format!(
-                "not supported by {:?} role",
-                self.role()
-            )))
-        }
-    }
+    Ok(())
 }
 
-/// A client that can connect to and call the [`EndpointService`] interface
-pub type Client<T> = proto::endpoint_service_client::EndpointServiceClient<T>;
+async fn accept(request: api::Request<api::v1::services::Accept>, state: State) -> Result<(), Error> {
+    let token = request.token.clone().ok_or(Error::MissingRequestToken)?;
 
-/// Connect to the [`EndpointService`] at [`Uri`] with authorization via the provided API `token`
-pub async fn connect_with_auth(
-    uri: Uri,
-    token: String,
-) -> Result<Client<InterceptedService<Channel, impl Interceptor>>, tonic::transport::Error> {
-    let channel = Channel::builder(uri).connect().await?;
-    Ok(Client::with_interceptor(channel, move |mut req: tonic::Request<()>| {
-        let auth_header = format!("Bearer {}", token)
-            .parse()
-            .map_err(|_| tonic::Status::internal(""))?;
-        req.metadata_mut().insert("authorization", auth_header);
-        Ok(req)
-    }))
+    let request = request.body.request;
+    let issuer = request.issuer;
+
+    let public_key = EncodedPublicKey::decode(&issuer.public_key).map_err(|_| Error::InvalidPublicKey)?;
+    let verified_token =
+        Token::verify(&request.issue_token, &public_key, &token::Validation::new()).map_err(Error::VerifyToken)?;
+
+    if !matches!(verified_token.decoded.payload.purpose, token::Purpose::Authorization) {
+        return Err(Error::RequireBearerToken);
+    }
+    if request.role != state.role() {
+        return Err(Error::RoleMismatch {
+            expected: state.role(),
+            provided: request.role,
+        });
+    }
+
+    let endpoint = token
+        .decoded
+        .payload
+        .sub
+        .parse::<endpoint::Id>()
+        .map_err(Error::InvalidEndpoint)?;
+
+    info!(
+        %endpoint,
+        public_key = issuer.public_key,
+        url = issuer.url,
+        role = %issuer.role,
+        "Enrollment accepted"
+    );
+
+    state
+        .pending_sent
+        .remove(&endpoint)
+        .await
+        .ok_or(Error::MissingPendingEnrollment(endpoint))?
+        .accepted(
+            &state.db,
+            enrollment::Remote {
+                host_address: issuer.url.parse::<Uri>()?,
+                public_key,
+                role: issuer.role,
+                bearer_token: verified_token,
+            },
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn decline(request: api::Request<api::v1::services::Decline>, state: State) -> Result<(), Error> {
+    let token = request.token.clone().ok_or(Error::MissingRequestToken)?;
+
+    let endpoint = token
+        .decoded
+        .payload
+        .sub
+        .parse::<endpoint::Id>()
+        .map_err(Error::InvalidEndpoint)?;
+
+    if let Some(enrollment) = state.pending_sent.remove(&endpoint).await {
+        info!(
+            %endpoint,
+            public_key = %enrollment.target.public_key,
+            url = %enrollment.target.host_address,
+            role = %enrollment.target.role,
+            "Enrollment declined"
+        );
+    }
+
+    Ok(())
+}
+
+// Middleware already validates this token is valid for this endpoint
+async fn refresh_token(request: api::Request<api::v1::services::RefreshToken>, state: State) -> Result<String, Error> {
+    request
+        .token
+        .ok_or(Error::MissingRequestToken)?
+        .decoded
+        .refresh()
+        .sign(&state.issuer.key_pair)
+        .map_err(Error::SignToken)
+}
+
+// Middleware already validates this token is valid for this endpoint
+async fn refresh_issue_token(
+    request: api::Request<api::v1::services::RefreshIssueToken>,
+    state: State,
+) -> Result<String, Error> {
+    request
+        .token
+        .ok_or(Error::MissingRequestToken)?
+        .decoded
+        .refresh()
+        .sign(&state.issuer.key_pair)
+        .map_err(Error::SignToken)
 }
 
 /// An error when handling an [`EndpointService`] request
 #[derive(Debug, Error)]
-pub enum Error {
+#[allow(clippy::large_enum_variant)]
+enum Error {
     /// Required token is missing from the request
     #[error("Token missing from request")]
     MissingRequestToken,
-    /// Request is malformed
-    #[error("Malformed request")]
-    MalformedRequest,
-    /// Request requires an account token
-    #[error("Requires an account token")]
-    RequireAccountToken,
+    /// Request requires a bearer token
+    #[error("Requires a bearer token")]
+    RequireBearerToken,
     /// Public key is invalid and can't be decoded
     #[error("Invalid public key")]
     InvalidPublicKey,
+    /// Upstream public key not set
+    #[error("Upstream public key not set for auto-enrollment")]
+    UpstreamNotSet,
+    /// Upstream request came from a different public key
+    #[error("Upstream public key mismatch, expected: {expected} provided {provided}")]
+    UpstreamMismatch {
+        /// The expected public key
+        expected: PublicKey,
+        /// The provided public key
+        provided: PublicKey,
+    },
     /// Role on request doesn't match role of service
     #[error("Role mismatch, expected {expected:?} provided {provided:?}")]
     RoleMismatch {
         /// The expected role
-        expected: EndpointRole,
+        expected: Role,
         /// The provided role
-        provided: EndpointRole,
+        provided: Role,
     },
     /// No pending enrollment is found for the provided endpoint ID
     #[error("Pending enrollment missing for endpoint {0}")]
@@ -436,30 +259,28 @@ pub enum Error {
     /// Token verification failed
     #[error("verify token")]
     VerifyToken(#[source] token::Error),
+    #[error("sign token")]
+    SignToken(#[source] token::Error),
     /// An enrollment error
     #[error("enrollment")]
     Enrollment(#[from] enrollment::Error),
 }
 
-impl From<Error> for tonic::Status {
-    fn from(error: Error) -> Self {
-        let mut status = match &error {
-            Error::MissingRequestToken => tonic::Status::internal(""),
-            Error::MalformedRequest => tonic::Status::internal(""),
-            Error::VerifyToken(_) => tonic::Status::internal(""),
-            Error::Enrollment(_) => tonic::Status::internal(""),
-            Error::InvalidPublicKey => tonic::Status::invalid_argument("not a valid public key"),
-            Error::InvalidUrl(_) => tonic::Status::invalid_argument("not a valid URL"),
-            Error::InvalidEndpoint(_) => tonic::Status::invalid_argument(""),
-            Error::RequireAccountToken => tonic::Status::invalid_argument("account token required"),
-            Error::RoleMismatch { expected, .. } => {
-                tonic::Status::invalid_argument(format!("only supported by {expected:?} role"))
+impl From<&Error> for http::StatusCode {
+    fn from(error: &Error) -> Self {
+        match error {
+            Error::MissingRequestToken => http::StatusCode::UNAUTHORIZED,
+            Error::Enrollment(_) | Error::UpstreamNotSet | Error::SignToken(_) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
             }
-            Error::MissingPendingEnrollment(_) => {
-                tonic::Status::invalid_argument("open enrollment doesn't exist for request, must re-enroll")
-            }
-        };
-        status.set_source(Arc::new(error));
-        status
+            Error::InvalidPublicKey
+            | Error::InvalidUrl(_)
+            | Error::InvalidEndpoint(_)
+            | Error::RequireBearerToken
+            | Error::VerifyToken(_)
+            | Error::RoleMismatch { .. }
+            | Error::MissingPendingEnrollment(_)
+            | Error::UpstreamMismatch { .. } => http::StatusCode::BAD_REQUEST,
+        }
     }
 }

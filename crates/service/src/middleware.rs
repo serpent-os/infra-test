@@ -1,7 +1,9 @@
-//! Common gRPC middleware for handling logging and auth
+//! Common middlewares used by built-in [`Server`]
+//!
+//! [`Server`]: crate::Server
 
-pub use self::auth::{auth, Auth};
-pub use self::log::{log_handler, Log};
+pub use self::extract_token::ExtractToken;
+pub use self::log::Log;
 
-pub mod auth;
+pub mod extract_token;
 pub mod log;

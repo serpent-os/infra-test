@@ -107,6 +107,11 @@ impl fmt::Display for PublicKey {
 pub struct EncodedPublicKey(String);
 
 impl EncodedPublicKey {
+    /// Decode the [`EncodedPublicKey`]
+    pub fn decoded(&self) -> Result<PublicKey, Error> {
+        Self::decode(&self.0)
+    }
+
     /// Decode the string as a [`PublicKey`]
     pub fn decode(key: &str) -> Result<PublicKey, Error> {
         let bytes = base64::prelude::BASE64_STANDARD_NO_PAD

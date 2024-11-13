@@ -3,17 +3,23 @@
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::Utc;
 use derive_more::From;
 use http::Uri;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-pub use self::service::{Client, Server, Service};
-use crate::{account, database, Database, Role};
+use crate::{
+    account, database,
+    token::{self, VerifiedToken},
+    Database, Role, Token,
+};
+
+pub(crate) use self::service::service;
 
 pub mod enrollment;
-pub mod service;
+pub(crate) mod service;
 
 /// Unique identifier of an [`Endpoint`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From)]
@@ -72,10 +78,8 @@ pub struct Endpoint {
     /// error [`Status`]
     pub error: Option<String>,
     /// Related service account identifier for this endpoint
-    #[sqlx(rename = "account_id", try_from = "Uuid")]
+    #[sqlx(rename = "account_id", try_from = "i64")]
     pub account: account::Id,
-    /// Description of the endpoint provided during enrollment
-    pub description: String,
     /// Role specific data
     #[sqlx(flatten)]
     #[serde(flatten)]
@@ -83,6 +87,29 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
+    /// Get an endpoint with the provided [`Id`]
+    pub async fn get(db: &Database, id: Id) -> Result<Self, database::Error> {
+        let endpoint: Endpoint = sqlx::query_as(
+            "
+            SELECT
+              endpoint_id,
+              host_address,
+              status,
+              error,
+              account_id,
+              role,
+              work_status
+            FROM endpoint
+            WHERE endpoint_id = ?;
+            ",
+        )
+        .bind(id.0)
+        .fetch_one(&db.pool)
+        .await?;
+
+        Ok(endpoint)
+    }
+
     /// Create or update this endpoint to the provided [`Database`]
     pub async fn save(&self, db: &Database) -> Result<(), database::Error> {
         sqlx::query(
@@ -94,7 +121,6 @@ impl Endpoint {
               status,
               error,
               account_id,
-              description,
               role,
               work_status
             )
@@ -104,7 +130,6 @@ impl Endpoint {
               status=excluded.status,
               error=excluded.error,
               account_id=excluded.account_id,
-              description=excluded.description,
               role=excluded.role,
               work_status=excluded.work_status;
             ",
@@ -113,8 +138,7 @@ impl Endpoint {
         .bind(self.host_address.to_string())
         .bind(self.status.to_string())
         .bind(&self.error)
-        .bind(self.account.uuid())
-        .bind(&self.description)
+        .bind(i64::from(self.account))
         .bind(self.kind.role().to_string())
         .bind(self.kind.work_status().map(ToString::to_string))
         .execute(&db.pool)
@@ -133,7 +157,6 @@ impl Endpoint {
               status,
               error,
               account_id,
-              description,
               role,
               work_status
             FROM endpoint;
@@ -173,10 +196,10 @@ impl Endpoint {
 /// Auth tokens used to connect to the endpoint
 #[derive(Debug, Clone, FromRow)]
 pub struct Tokens {
-    /// Token used for authentication
-    pub account_token: Option<String>,
-    /// Token used for authorization to hit APIs provided by the endpoint
-    pub api_token: Option<String>,
+    /// Current bearer token
+    pub bearer_token: Option<String>,
+    /// Current access token
+    pub access_token: Option<String>,
 }
 
 impl Tokens {
@@ -186,13 +209,13 @@ impl Tokens {
             "
             UPDATE endpoint
             SET
-              account_token = ?,
-              api_token = ?
+              bearer_token = ?,
+              access_token = ?
             WHERE endpoint_id = ?;
             ",
         )
-        .bind(&self.account_token)
-        .bind(&self.api_token)
+        .bind(&self.bearer_token)
+        .bind(&self.access_token)
         .bind(id.0)
         .execute(&db.pool)
         .await?;
@@ -205,8 +228,8 @@ impl Tokens {
         let tokens: Tokens = sqlx::query_as(
             "
             SELECT
-              account_token,
-              api_token
+              bearer_token,
+              access_token
             FROM endpoint
             WHERE endpoint_id = ?;
             ",
@@ -318,30 +341,30 @@ pub mod builder {
     }
 }
 
-mod proto {
-    use tonic::include_proto;
+pub(crate) fn create_token(
+    purpose: token::Purpose,
+    endpoint: Id,
+    account: account::Id,
+    role: Role,
+    ourself: &enrollment::Issuer,
+) -> Result<VerifiedToken, token::Error> {
+    let now = Utc::now();
+    let expires_on = now + purpose.duration();
 
-    use crate::Role;
+    let token = Token::new(token::Payload {
+        aud: role.service_name().to_string(),
+        exp: expires_on.timestamp(),
+        iat: now.timestamp(),
+        iss: ourself.role.service_name().to_string(),
+        sub: endpoint.to_string(),
+        purpose,
+        account_id: account,
+        account_type: account::Kind::Service,
+    });
+    let account_token = token.sign(&ourself.key_pair)?;
 
-    include_proto!("endpoint");
-
-    impl From<EndpointRole> for Role {
-        fn from(role: EndpointRole) -> Self {
-            match role {
-                EndpointRole::Builder => Self::Builder,
-                EndpointRole::RepositoryManager => Self::RepositoryManager,
-                EndpointRole::Hub => Self::Hub,
-            }
-        }
-    }
-
-    impl From<Role> for EndpointRole {
-        fn from(role: Role) -> Self {
-            match role {
-                Role::Builder => Self::Builder,
-                Role::RepositoryManager => Self::RepositoryManager,
-                Role::Hub => Self::Hub,
-            }
-        }
-    }
+    Ok(VerifiedToken {
+        encoded: account_token,
+        decoded: token,
+    })
 }

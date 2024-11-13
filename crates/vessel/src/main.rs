@@ -2,12 +2,11 @@ use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
 use futures::{select, FutureExt};
-use serde::Deserialize;
-use service::{endpoint::enrollment, signal, Role, Server, State};
+use service::{signal, Role, Server, State};
 use tracing::info;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
-pub type Config = service::Config<VesselConfig>;
+pub type Config = service::Config;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -18,6 +17,7 @@ async fn main() -> Result<()> {
         root,
     } = Args::parse();
 
+    //
     let config = Config::load(config.unwrap_or_else(|| root.join("config.toml"))).await?;
 
     service::tracing::init(&config.tracing);
@@ -27,7 +27,6 @@ async fn main() -> Result<()> {
     info!("vessel listening on {host}:{port}");
 
     let mut grpc = Server::new(Role::RepositoryManager, &config, &state)
-        .enroll_with(config.domain.summit.clone())
         .start((host, port))
         .boxed()
         .fuse();
@@ -53,9 +52,4 @@ struct Args {
     config: Option<PathBuf>,
     #[arg(long, short, default_value = ".")]
     root: PathBuf,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct VesselConfig {
-    pub summit: enrollment::Target,
 }

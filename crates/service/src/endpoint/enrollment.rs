@@ -1,32 +1,17 @@
 //! Enroll with remote services to provision authorization
 
-use chrono::Utc;
 use http::Uri;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, info};
 
-use super::{
-    proto::{self, EndpointRole, EnrollmentRequest},
-    service,
-};
 use crate::{
-    account,
+    account, api, client,
     crypto::{EncodedPublicKey, KeyPair, PublicKey},
     database, endpoint,
-    sync::SharedMap,
     token::{self, VerifiedToken},
-    Account, Database, Endpoint, Role, State, Token,
+    Account, Client, Database, Endpoint, Role,
 };
-
-/// Pending enrollment requests waiting for confirmation
-#[derive(Debug, Clone, Default)]
-pub struct Pending {
-    /// Pending sent requests waiting to be accepted by the remote endpoint
-    pub sent: SharedMap<endpoint::Id, Sent>,
-    /// Pending received requests waiting to be accepted by an admin
-    pub received: SharedMap<endpoint::Id, Received>,
-}
 
 /// An issuer of enrollment requests
 #[derive(Debug, Clone)]
@@ -45,24 +30,19 @@ pub struct Issuer {
     pub admin_email: String,
 }
 
-impl From<Issuer> for proto::Issuer {
+impl From<Issuer> for service_types::endpoint::enrollment::Issuer {
     fn from(issuer: Issuer) -> Self {
         let Issuer {
             key_pair,
             host_address,
             role,
-            admin_name,
-            admin_email,
-            description,
+            ..
         } = issuer;
 
-        proto::Issuer {
+        service_types::endpoint::enrollment::Issuer {
             public_key: key_pair.public_key().encode().to_string(),
             url: host_address.to_string(),
-            role: EndpointRole::from(role) as i32,
-            admin_name,
-            admin_email,
-            description,
+            role,
         }
     }
 }
@@ -76,14 +56,8 @@ pub struct Remote {
     pub host_address: Uri,
     /// Remote endpoint role
     pub role: Role,
-    /// Remote endpoint description
-    pub description: String,
-    /// Admin name
-    pub admin_name: String,
-    /// Admin email
-    pub admin_email: String,
-    /// Account token assigned to us by the remote endpoint
-    pub token: VerifiedToken,
+    /// Bearer token assigned to us by the remote endpoint
+    pub bearer_token: VerifiedToken,
 }
 
 /// A received enrollment request
@@ -106,8 +80,8 @@ pub struct Sent {
     pub account: account::Id,
     /// Target of the enrollment request
     pub target: Target,
-    /// Account token we've issued and sent along w/ the request
-    pub token: VerifiedToken,
+    /// Bearer token we've issued and sent along w/ the request
+    pub bearer_token: VerifiedToken,
 }
 
 /// The target of a [`Sent`] enrollment
@@ -138,15 +112,17 @@ pub async fn send(target: Target, ourself: Issuer) -> Result<Sent, Error> {
 
     debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
-    let account_token = create_account_token(endpoint, account, target.role, &ourself)?;
+    let bearer_token = endpoint::create_token(token::Purpose::Authorization, endpoint, account, target.role, &ourself)?;
 
-    let mut client = service::Client::connect(target.host_address.clone()).await?;
+    let client = Client::new(target.host_address.clone());
 
     let resp = client
-        .enroll(EnrollmentRequest {
-            issuer: Some(ourself.into()),
-            account_token: account_token.encoded.clone(),
-            role: EndpointRole::from(target.role) as i32,
+        .send::<api::v1::services::Enroll>(&api::v1::services::EnrollRequestBody {
+            request: service_types::endpoint::enrollment::Request {
+                issuer: ourself.into(),
+                issue_token: bearer_token.encoded.clone(),
+                role: target.role,
+            },
         })
         .await;
 
@@ -165,10 +141,10 @@ pub async fn send(target: Target, ourself: Issuer) -> Result<Sent, Error> {
                 endpoint,
                 account,
                 target,
-                token: account_token,
+                bearer_token,
             })
         }
-        Err(error) => Err(Error::Grpc(error)),
+        Err(error) => Err(Error::Client(error)),
     }
 }
 
@@ -183,24 +159,16 @@ impl Received {
             public_key = %self.remote.public_key,
             url = %self.remote.host_address,
             role = %self.remote.role,
-            email = self.remote.admin_email,
         )
     )]
     pub async fn accept(self, db: &Database, ourself: Issuer) -> Result<(), Error> {
         let account_id = self.account;
         let username = format!("@{account_id}");
 
-        Account {
-            id: account_id,
-            kind: account::Kind::Service,
-            username: username.clone(),
-            email: self.remote.admin_email,
-            name: self.remote.admin_name,
-            public_key: self.remote.public_key.encode(),
-        }
-        .save(&db.pool)
-        .await
-        .map_err(Error::CreateServiceAccount)?;
+        Account::service(account_id, self.remote.public_key.encode())
+            .save(&db.pool)
+            .await
+            .map_err(Error::CreateServiceAccount)?;
 
         info!(username, "Created a new service account");
 
@@ -219,14 +187,13 @@ impl Received {
             status: endpoint::Status::AwaitingAcceptance,
             error: None,
             account: account_id,
-            description: self.remote.description,
             kind,
         };
         endpoint.save(db).await.map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
-            account_token: Some(self.remote.token.encoded.clone()),
-            api_token: None,
+            bearer_token: Some(self.remote.bearer_token.encoded.clone()),
+            access_token: None,
         }
         .save(db, endpoint.id)
         .await
@@ -234,24 +201,34 @@ impl Received {
 
         info!("Created a new endpoint for the service account");
 
-        let account_token = create_account_token(endpoint_id, account_id, self.remote.role, &ourself)?;
+        let bearer_token = endpoint::create_token(
+            token::Purpose::Authorization,
+            endpoint_id,
+            account_id,
+            self.remote.role,
+            &ourself,
+        )?;
 
-        account::Token::set(db, account_id, &account_token.encoded, account_token.expires())
+        account::Token::set(db, account_id, &bearer_token.encoded, bearer_token.expires())
             .await
             .map_err(Error::SetAccountToken)?;
 
         info!(
-            expiration = %account_token.expires(),
+            expiration = %bearer_token.expires(),
             "Account token created",
         );
 
-        let mut client = service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
-
-        let resp = client
-            .accept(EnrollmentRequest {
-                issuer: Some(ourself.into()),
-                account_token: account_token.encoded,
-                role: EndpointRole::from(self.remote.role) as i32,
+        let resp = Client::new(self.remote.host_address)
+            .with_tokens(client::Tokens {
+                bearer_token: Some(self.remote.bearer_token.clone()),
+                access_token: None,
+            })
+            .send::<api::v1::services::Accept>(&api::v1::services::AcceptRequestBody {
+                request: service_types::endpoint::enrollment::Request {
+                    issuer: ourself.into(),
+                    issue_token: bearer_token.encoded,
+                    role: self.remote.role,
+                },
             })
             .await;
 
@@ -266,19 +243,23 @@ impl Received {
             }
             Err(error) => {
                 endpoint.status = endpoint::Status::Failed;
-                endpoint.error = Some(error.message().to_string());
+                endpoint.error = Some(error.to_string());
                 endpoint.save(db).await.map_err(Error::UpdateEndpointStatus)?;
 
-                Err(Error::Grpc(error))
+                Err(Error::Client(error))
             }
         }
     }
 
     /// Decline the received enrollment
     pub async fn decline(self) -> Result<(), Error> {
-        let mut client = service::connect_with_auth(self.remote.host_address, self.remote.token.encoded).await?;
-
-        client.decline(()).await?;
+        Client::new(self.remote.host_address)
+            .with_tokens(client::Tokens {
+                bearer_token: Some(self.remote.bearer_token.clone()),
+                access_token: None,
+            })
+            .send::<api::v1::services::Decline>(&())
+            .await?;
 
         Ok(())
     }
@@ -295,7 +276,6 @@ impl Sent {
             public_key = %self.target.public_key,
             url = %self.target.host_address,
             role = %self.target.role,
-            email = remote.admin_email,
         )
     )]
     pub async fn accepted(&self, db: &Database, remote: Remote) -> Result<(), Error> {
@@ -313,8 +293,8 @@ impl Sent {
             id: account,
             kind: account::Kind::Service,
             username: username.clone(),
-            email: remote.admin_email,
-            name: remote.admin_name,
+            email: None,
+            name: None,
             public_key: self.target.public_key.encode(),
         }
         .save(&db.pool)
@@ -331,7 +311,6 @@ impl Sent {
             status: endpoint::Status::Operational,
             error: None,
             account,
-            description: remote.description,
             kind: endpoint::Kind::Hub,
         }
         .save(db)
@@ -339,8 +318,8 @@ impl Sent {
         .map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
-            account_token: Some(remote.token.encoded),
-            api_token: None,
+            bearer_token: Some(remote.bearer_token.encoded),
+            access_token: None,
         }
         .save(db, endpoint)
         .await
@@ -348,12 +327,17 @@ impl Sent {
 
         info!("Created a new endpoint for the service account");
 
-        account::Token::set(db, self.account, &self.token.encoded, self.token.expires())
-            .await
-            .map_err(Error::SetAccountToken)?;
+        account::Token::set(
+            db,
+            self.account,
+            &self.bearer_token.encoded,
+            self.bearer_token.expires(),
+        )
+        .await
+        .map_err(Error::SetAccountToken)?;
 
         info!(
-            expiration = %self.token.expires(),
+            expiration = %self.bearer_token.expires(),
             "Account token saved",
         );
 
@@ -363,70 +347,9 @@ impl Sent {
     }
 }
 
-/// Send an initial enrollment to [`Target`] if the
-/// endpoint is not yet configured and operational
-#[tracing::instrument(skip_all)]
-pub async fn send_initial_enrollment(target: Target, ourself: Issuer, state: State) -> Result<(), Error> {
-    // If we're paired & operational, we don't need to resend
-    for endpoint in Endpoint::list(&state.db).await.map_err(Error::ListEndpoints)? {
-        let account = Account::get(&state.db, endpoint.account)
-            .await
-            .map_err(Error::ReadAccount)?;
-
-        if matches!(endpoint.status, endpoint::Status::Operational)
-            && endpoint.host_address == target.host_address
-            && account.public_key == target.public_key.encode()
-        {
-            debug!(
-                url = %endpoint.host_address,
-                public_key = %account.public_key,
-                "Configured endpoint already operational"
-            );
-            return Ok(());
-        }
-    }
-
-    let sent = send(target, ourself).await?;
-
-    state.pending_enrollment.sent.insert(sent.endpoint, sent).await;
-
-    Ok(())
-}
-
-fn create_account_token(
-    endpoint: endpoint::Id,
-    account: account::Id,
-    role: Role,
-    ourself: &Issuer,
-) -> Result<VerifiedToken, Error> {
-    let purpose = token::Purpose::Account;
-    let now = Utc::now();
-    let expires_on = now + purpose.duration();
-
-    let token = Token::new(token::Payload {
-        aud: role.service_name().to_string(),
-        exp: expires_on.timestamp(),
-        iat: now.timestamp(),
-        iss: ourself.role.service_name().to_string(),
-        sub: endpoint.to_string(),
-        purpose,
-        account_id: account,
-        account_type: account::Kind::Service,
-    });
-    let account_token = token.sign(&ourself.key_pair)?;
-
-    Ok(VerifiedToken {
-        encoded: account_token,
-        decoded: token,
-    })
-}
-
 /// An enrollment error
 #[derive(Debug, Error)]
 pub enum Error {
-    /// gRPC request failed
-    #[error("grpc request failed")]
-    Grpc(#[from] tonic::Status),
     /// Reading an [`Account`] failed
     #[error("read account")]
     ReadAccount(#[source] account::Error),
@@ -456,10 +379,10 @@ pub enum Error {
         /// The actual key
         actual: EncodedPublicKey,
     },
-    /// gRPC transport error
-    #[error("grpc transport")]
-    Transport(#[from] tonic::transport::Error),
     /// Token signing failed
     #[error("sign token")]
     SignToken(#[from] token::Error),
+    /// Client error
+    #[error("client")]
+    Client(#[from] client::Error),
 }

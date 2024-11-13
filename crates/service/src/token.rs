@@ -1,7 +1,7 @@
 //! Json Web Token (JWT)
 use std::time::SystemTime;
 
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -38,7 +38,7 @@ impl Token {
             &DecodingKey::from_ed_der(public_key.as_ref()),
             &validation.0,
         )
-        .map_err(Error::DecodeToken)?;
+        .map_err(Error::decode)?;
 
         Ok(VerifiedToken {
             encoded: token.to_string(),
@@ -69,6 +69,33 @@ impl Token {
 
         self.payload.exp as u64 <= now
     }
+
+    /// Returns true if the token is expired in [`Duration`] from now
+    pub fn is_expired_in(&self, duration: std::time::Duration) -> bool {
+        let start = SystemTime::now();
+        let now = (start
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            + duration)
+            .as_secs();
+
+        self.payload.exp as u64 <= now
+    }
+
+    /// Refresh this token with a new expiration & issue time
+    pub fn refresh(&self) -> Self {
+        let now = Utc::now();
+        let expires_on = now + self.payload.purpose.duration();
+
+        Self {
+            payload: Payload {
+                exp: expires_on.timestamp(),
+                iat: now.timestamp(),
+                ..self.payload.clone()
+            },
+            ..self.clone()
+        }
+    }
 }
 
 /// A token that's been verified via [`Token::verify`]
@@ -83,9 +110,7 @@ pub struct VerifiedToken {
 impl VerifiedToken {
     /// Returns the datetime the token expires
     pub fn expires(&self) -> DateTime<Utc> {
-        chrono::NaiveDateTime::from_timestamp_opt(self.decoded.payload.exp, 0)
-            .map(|dt| dt.and_utc())
-            .unwrap_or_else(|| NaiveDateTime::UNIX_EPOCH.and_utc())
+        DateTime::from_timestamp(self.decoded.payload.exp, 0).unwrap_or(DateTime::UNIX_EPOCH)
     }
 }
 
@@ -161,21 +186,22 @@ pub struct Payload {
 
 /// Purpose of the token
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::Display)]
-#[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum Purpose {
-    /// Authentication
-    Account,
-    /// Authorization
-    Api,
+    /// Bearer
+    #[serde(rename = "authorize")]
+    Authorization,
+    /// Access
+    #[serde(rename = "authenticate")]
+    Authentication,
 }
 
 impl Purpose {
     /// Duration used for the expiration of a token with this purpose
     pub fn duration(&self) -> Duration {
         match self {
-            Purpose::Account => Duration::days(7),
-            Purpose::Api => Duration::hours(1),
+            Purpose::Authorization => Duration::days(7),
+            Purpose::Authentication => Duration::hours(1),
         }
     }
 }
@@ -183,6 +209,9 @@ impl Purpose {
 /// A token error
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Token signature invalid
+    #[error("Invalid signature")]
+    InvalidSignature,
     /// Decoding token failed
     #[error("decode token")]
     DecodeToken(#[source] jsonwebtoken::errors::Error),
@@ -194,12 +223,19 @@ pub enum Error {
     Crypto(#[from] crypto::Error),
 }
 
+impl Error {
+    fn decode(error: jsonwebtoken::errors::Error) -> Self {
+        match error.kind() {
+            jsonwebtoken::errors::ErrorKind::InvalidSignature => Self::InvalidSignature,
+            _ => Self::decode(error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
-    // use base64::Engine;
     use chrono::{Duration, Utc};
     use jsonwebtoken::Algorithm;
-    use uuid::Uuid;
 
     use super::*;
 
@@ -218,8 +254,8 @@ mod test {
                 iat: now.timestamp(),
                 iss: "test".into(),
                 sub: "test".into(),
-                purpose: Purpose::Account,
-                account_id: Uuid::new_v4().into(),
+                purpose: Purpose::Authorization,
+                account_id: 0.into(),
                 account_type: account::Kind::Admin,
             },
         };

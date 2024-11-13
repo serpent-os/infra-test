@@ -6,11 +6,16 @@ use http::Uri;
 use serde::Deserialize;
 use tokio::fs;
 
-use crate::{account::Admin, crypto::KeyPair, endpoint::enrollment::Issuer, tracing, Role};
+use crate::{
+    account::Admin,
+    crypto::{KeyPair, PublicKey},
+    endpoint::enrollment::Issuer,
+    tracing, Role,
+};
 
 /// Service configuration
 #[derive(Debug, Clone, Deserialize)]
-pub struct Config<T> {
+pub struct Config {
     /// [`Uri`] this service is reachable from
     #[serde(with = "http_serde::uri")]
     pub host_address: Uri,
@@ -21,15 +26,13 @@ pub struct Config<T> {
     /// Tracing configuration
     #[serde(default)]
     pub tracing: tracing::Config,
-    /// Generic configuration that can be specialized by the service
-    #[serde(flatten)]
-    pub domain: T,
+    /// Upstream hub to auto-accept enrollment with
+    ///
+    /// Only applicable for non-hub services
+    pub upstream: Option<PublicKey>,
 }
 
-impl<T> Config<T>
-where
-    T: for<'de> Deserialize<'de>,
-{
+impl Config {
     /// Load configuration from the provided `path`
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         let content = fs::read_to_string(path).await?;
@@ -38,7 +41,7 @@ where
     }
 }
 
-impl<T> Config<T> {
+impl Config {
     /// Construct [`Issuer`] details based on this [`Config`] and
     /// the provided [`Role`] and [`KeyPair`]
     pub fn issuer(&self, role: Role, key_pair: KeyPair) -> Issuer {

@@ -8,7 +8,8 @@ use tracing::debug;
 use crate::{
     crypto::{self, KeyPair},
     database,
-    endpoint::enrollment,
+    endpoint::{self, enrollment},
+    sync::SharedMap,
     Database,
 };
 
@@ -19,8 +20,10 @@ pub struct State {
     pub db: Database,
     /// Key pair used by the service
     pub key_pair: KeyPair,
-    /// Pending enrollment requests waiting for confirmation
-    pub pending_enrollment: enrollment::Pending,
+    /// Pending enrollment requests that are awaiting confirmation
+    ///
+    /// Only applicable for hub service
+    pub pending_sent: SharedMap<endpoint::Id, enrollment::Sent>,
 }
 
 impl State {
@@ -54,7 +57,7 @@ impl State {
         Ok(Self {
             db,
             key_pair,
-            pending_enrollment: Default::default(),
+            pending_sent: Default::default(),
         })
     }
 }

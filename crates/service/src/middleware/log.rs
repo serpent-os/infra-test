@@ -1,27 +1,12 @@
 //! Log the request and if applicable, error
 
+use std::sync::Arc;
+
+use axum::body::Body;
 use futures::{future::BoxFuture, FutureExt};
-use tonic::{body::BoxBody, transport::Body};
-use tower::BoxError;
 use tracing::{debug, error, info_span, Instrument};
 
 use crate::error;
-
-/// Convert the provided result into a [`tonic::Response`] and log any error
-pub fn log_handler<T, E>(result: Result<T, E>) -> Result<tonic::Response<T>, tonic::Status>
-where
-    E: Into<tonic::Status> + std::error::Error,
-{
-    match result {
-        Ok(data) => Ok(tonic::Response::new(data)),
-        Err(err) => {
-            let error = error::chain(&err);
-            error!(%error, "Handler error");
-
-            Err(err.into())
-        }
-    }
-}
 
 /// Logging middleware which logs the request and if applicable, error
 #[derive(Debug, Clone, Copy)]
@@ -43,10 +28,7 @@ pub struct Service<S> {
 
 impl<S> tower::Service<http::Request<Body>> for Service<S>
 where
-    S: tower::Service<http::Request<Body>, Response = http::Response<BoxBody>, Error = BoxError>
-        + Clone
-        + Send
-        + 'static,
+    S: tower::Service<http::Request<Body>, Response = http::Response<Body>> + Clone + Send + 'static,
     S::Future: Send + 'static,
 {
     type Response = S::Response;
@@ -71,14 +53,33 @@ where
 
             match inner.call(req).await {
                 Ok(resp) => {
+                    let (parts, body) = resp.into_parts();
+
+                    if let Some(Error(e)) = parts.extensions.get() {
+                        let error = error::chain(e);
+                        error!(%error, "Handler error");
+                    }
+
+                    let resp = http::Response::from_parts(parts, body);
+
                     debug!(status = %resp.status(), "Sending response");
+
                     Ok(resp)
                 }
-                // Infallible
                 Err(e) => Err(e),
             }
         }
-        .instrument(info_span!("grpc", path))
+        .instrument(info_span!("request", path))
         .boxed()
+    }
+}
+
+/// If set as a response extension, it will be logged by this middleware
+#[derive(Clone)]
+pub struct Error(Arc<dyn std::error::Error + Send + Sync>);
+
+impl Error {
+    pub fn new(error: impl std::error::Error + Send + Sync + 'static) -> Self {
+        Self(Arc::new(error))
     }
 }

@@ -1,55 +1,27 @@
 //! Manage data for admin, user, bot & service accounts
 
-use std::fmt;
-
 use chrono::{DateTime, Utc};
-use derive_more::From;
+use derive_more::{Display, From, Into};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use strum::EnumString;
 use thiserror::Error;
 use tracing::debug;
-use uuid::Uuid;
 
-pub use self::service::{Client, Server, Service};
 use crate::{crypto::EncodedPublicKey, database, Database};
 
-pub mod service;
-
 /// Unique identifier of an [`Account`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, FromRow)]
-#[serde(try_from = "&str", into = "String")]
-pub struct Id(Uuid);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, Into, Display, FromRow)]
+pub struct Id(i64);
 
 impl Id {
     /// Generate a new [`Id`]
     pub fn generate() -> Self {
-        Self(Uuid::new_v4())
-    }
-
-    /// Underlying [`Uuid`] of the [`Id`]
-    pub fn uuid(&self) -> &Uuid {
-        &self.0
-    }
-}
-
-impl<'a> TryFrom<&'a str> for Id {
-    type Error = uuid::Error;
-
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        value.parse::<Uuid>().map(Id)
-    }
-}
-
-impl fmt::Display for Id {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl From<Id> for String {
-    fn from(id: Id) -> Self {
-        id.to_string()
+        // TODO: Hacky way to support u64 ID that dlang infra expects
+        // without having to create temporary DB records
+        //
+        // Move to proper UUID once we're off D infra
+        Self(Utc::now().timestamp_nanos_opt().unwrap_or(0))
     }
 }
 
@@ -57,7 +29,7 @@ impl From<Id> for String {
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Account {
     /// Unique identifier of the account
-    #[sqlx(rename = "account_id", try_from = "Uuid")]
+    #[sqlx(rename = "account_id", try_from = "i64")]
     pub id: Id,
     /// Account type
     #[sqlx(rename = "type", try_from = "&'a str")]
@@ -65,15 +37,27 @@ pub struct Account {
     /// Username
     pub username: String,
     /// Email
-    pub email: String,
+    pub email: Option<String>,
     /// Name
-    pub name: String,
+    pub name: Option<String>,
     /// Public key used for authentication
     #[sqlx(try_from = "String")]
     pub public_key: EncodedPublicKey,
 }
 
 impl Account {
+    /// Create a service account
+    pub fn service(id: Id, public_key: EncodedPublicKey) -> Self {
+        Self {
+            id,
+            kind: Kind::Service,
+            username: format!("@{id}"),
+            email: None,
+            name: None,
+            public_key,
+        }
+    }
+
     /// Get the account for [`Id`] from the provided [`Database`]
     pub async fn get(db: &Database, id: Id) -> Result<Self, Error> {
         let account: Account = sqlx::query_as(
@@ -163,30 +147,56 @@ impl Account {
 
 /// Type of account
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString, strum::Display)]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
+#[repr(u8)]
+#[serde(into = "u8", try_from = "u8")]
+#[strum(serialize_all = "kebab-case")]
 pub enum Kind {
-    /// Admin account
-    Admin,
     /// Standard account
-    Standard,
+    Standard = 0,
     /// Bot account
     Bot,
     /// Service account (endpoint)
     Service,
+    /// Admin account
+    Admin,
 }
 
-/// [`Account`] token provisioned for the account after authentication
+impl From<Kind> for u8 {
+    fn from(kind: Kind) -> Self {
+        kind as u8
+    }
+}
+
+impl TryFrom<u8> for Kind {
+    type Error = UnknownKind;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Kind::Standard),
+            1 => Ok(Kind::Bot),
+            2 => Ok(Kind::Service),
+            3 => Ok(Kind::Admin),
+            x => Err(UnknownKind(x)),
+        }
+    }
+}
+
+/// Unknown [`Kind`] from [`u8`]
+#[derive(Debug, Error)]
+#[error("Unkown account kind: {0}")]
+pub struct UnknownKind(u8);
+
+/// [`Account`] bearer token provisioned for the account after authentication
 #[derive(Debug, Clone, FromRow)]
 pub struct Token {
-    /// Encoded token string
+    /// Encoded bearer token string
     pub encoded: String,
     /// Token expiration time
     pub expiration: DateTime<Utc>,
 }
 
 impl Token {
-    /// Set the account token & expiration related to [`Id`] for the provided [`Database`]
+    /// Set the account's bearer token & expiration
     pub async fn set(db: &Database, id: Id, encoded: impl ToString, expiration: DateTime<Utc>) -> Result<(), Error> {
         sqlx::query(
             "
@@ -291,8 +301,8 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
         id: Id::generate(),
         kind: Kind::Admin,
         username: admin.username.clone(),
-        name: admin.name.clone(),
-        email: admin.email.clone(),
+        name: Some(admin.name.clone()),
+        email: Some(admin.email.clone()),
         public_key: admin.public_key.clone(),
     }
     .save(transaction.as_mut())
@@ -317,10 +327,4 @@ impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
         Error::Database(database::Error::from(error))
     }
-}
-
-mod proto {
-    use tonic::include_proto;
-
-    include_proto!("account");
 }

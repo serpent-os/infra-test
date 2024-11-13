@@ -12,8 +12,4 @@ name = "Admin"
 email = "admin@serpentos.com"
 public_key = "9eBMCOKXlF16+yCNqHhBdg7S3CY9gOu8qqH/zPX1yp0"
 
-[summit]
-host_address = "http://summit:5001"
-public_key = "qKKyTD5EOONuvml/lr7C6jRh6eHL3RrUd6qRZb8ygoQ"
-role = "hub"
-
+upstream = "qKKyTD5EOONuvml/lr7C6jRh6eHL3RrUd6qRZb8ygoQ"
