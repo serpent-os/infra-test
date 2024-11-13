@@ -10,9 +10,10 @@ format = "compact"
 username = "admin"
 name = "Admin"
 email = "admin@serpentos.com"
-public_key = "9eBMCOKXlF16+yCNqHhBdg7S3CY9gOu8qqH/zPX1yp0"
+public_key = "9eBMCOKXlF16-yCNqHhBdg7S3CY9gOu8qqH_zPX1yp0"
 
 [[downstream]]
 host_address = "http://vessel:5001"
-public_key = "uxV+S0soSdALp8G+IVbjJMmATzTCfA+8abkNbJ7PKt8"
-role = "RepositoryManager"
+public_key = "uxV-S0soSdALp8G-IVbjJMmATzTCfA-8abkNbJ7PKt8"
+# D serializes these as integers :/
+role = 2

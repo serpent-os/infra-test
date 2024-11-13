@@ -1,16 +1,19 @@
 //! Defines the role a service plays in the infrastructure
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// Service role
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumString, Serialize, Deserialize)]
+#[serde(into = "u8", try_from = "u8")]
 #[strum(serialize_all = "kebab-case")]
+#[repr(u8)]
 pub enum Role {
-    /// Hub
-    Hub,
-    /// Repository Manager
-    RepositoryManager,
     /// Builder
-    Builder,
+    Builder = 1,
+    /// Repository Manager
+    RepositoryManager = 2,
+    /// Hub
+    Hub = 3,
 }
 
 impl Role {
@@ -23,3 +26,27 @@ impl Role {
         }
     }
 }
+
+impl From<Role> for u8 {
+    fn from(role: Role) -> Self {
+        role as u8
+    }
+}
+
+impl TryFrom<u8> for Role {
+    type Error = UnknownRole;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Role::Builder),
+            2 => Ok(Role::RepositoryManager),
+            3 => Ok(Role::Hub),
+            x => Err(UnknownRole(x)),
+        }
+    }
+}
+
+/// Unknown [`Role`] from [`u8`]
+#[derive(Debug, Error)]
+#[error("Unkown role: {0}")]
+pub struct UnknownRole(u8);

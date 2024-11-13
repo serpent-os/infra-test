@@ -1,15 +1,15 @@
 services:
-  summit:
-    image: serpentos/summit
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./summit:/state
-    user: ${MY_UID}:${MY_GID}
-    depends_on:
-      vessel:
-        condition: service_started
-        restart: true
+  # summit:
+  #   image: serpentos/summit
+  #   ports:
+  #     - "5000:5000"
+  #   volumes:
+  #     - ./summit:/state
+  #   user: ${MY_UID}:${MY_GID}
+  #   depends_on:
+  #     vessel:
+  #       condition: service_started
+  #       restart: true
   vessel:
     image: serpentos/vessel
     ports:

@@ -10,8 +10,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=bind,target=/src <<"EOT" /bin/sh
     for target in vessel summit
     do
-      cargo build --release -p "$target"
-      cp "/tmp/target/release/$target" /
+      cargo build -p "$target"
+      cp "/tmp/target/debug/$target" /
     done
 EOT
 

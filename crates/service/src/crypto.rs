@@ -67,7 +67,7 @@ pub struct PublicKey(ed25519_dalek::VerifyingKey);
 impl PublicKey {
     /// Encode the public key to a string
     pub fn encode(&self) -> EncodedPublicKey {
-        EncodedPublicKey(base64::prelude::BASE64_STANDARD_NO_PAD.encode(self.0.as_bytes()))
+        EncodedPublicKey(base64::prelude::BASE64_URL_SAFE_NO_PAD.encode(self.0.as_bytes()))
     }
 
     /// Verify a signature on a message with this keypair's public key
@@ -114,7 +114,7 @@ impl EncodedPublicKey {
 
     /// Decode the string as a [`PublicKey`]
     pub fn decode(key: &str) -> Result<PublicKey, Error> {
-        let bytes = base64::prelude::BASE64_STANDARD_NO_PAD
+        let bytes = base64::prelude::BASE64_URL_SAFE_NO_PAD
             .decode(key)?
             .try_into()
             .unwrap_or_default();
@@ -132,7 +132,7 @@ pub struct EncodedSignature(String);
 impl EncodedSignature {
     /// Decode the string as a [`Signature`]
     pub fn decode(signature: &str) -> Result<Signature, Error> {
-        let bytes = base64::prelude::BASE64_STANDARD_NO_PAD
+        let bytes = base64::prelude::BASE64_URL_SAFE_NO_PAD
             .decode(signature)?
             .try_into()
             .unwrap_or([0; 64]);

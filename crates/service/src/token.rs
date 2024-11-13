@@ -174,7 +174,6 @@ pub struct Payload {
     /// Subject - Subject of the JWT (the user)
     pub sub: String,
     /// Token purpose
-    #[serde(rename = "pur")]
     pub purpose: Purpose,
     /// Account id of the holder
     #[serde(rename = "uid")]
