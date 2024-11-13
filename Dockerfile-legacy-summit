@@ -1,0 +1,32 @@
+FROM debian:bookworm AS builder
+RUN apt update
+RUN apt install -y \
+	build-essential \
+	curl \
+	wget \
+	git \
+	libcurl4-openssl-dev \
+	libdbus-1-dev \
+	liblmdb-dev \
+	libsodium-dev \
+	libssl-dev \
+	libxml2-dev \
+	libxxhash-dev \
+	libz-dev \
+	libzstd-dev
+RUN mkdir -p ~/dlang && wget https://dlang.org/install.sh -O ~/dlang/install.sh
+RUN chmod +x ~/dlang/install.sh
+RUN ~/dlang/install.sh install ldc-1.32.2
+RUN git clone https://github.com/serpent-os/libmoss.git
+RUN git clone https://github.com/serpent-os/moss-service.git
+RUN git clone https://github.com/serpent-os/summit.git
+RUN --mount=type=cache,target=/root/.dub <<"EOT" /bin/bash
+	source ~/dlang/ldc-1.32.2/activate
+	cd summit
+	dub build --parallel
+EOT
+
+EXPOSE 8001
+WORKDIR /summit
+VOLUME /summit/state
+CMD ["/summit/summit", "-a", "0.0.0.0", "-p", "5000"]

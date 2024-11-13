@@ -1,3 +1,6 @@
 /target
 crates/**/.privkey
 *.db
+
+test/summit-legacy/cache
+test/summit-legacy/db

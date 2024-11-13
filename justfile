@@ -8,10 +8,14 @@ help:
 
 [private]
 docker-build target:
-	@docker build . -t serpentos/{{target}} --target {{target}} --no-cache
+	@docker build . -t serpentos/{{target}} --target {{target}}
+
+[private]
+docker-build-legacy:
+	@docker build . -t serpentos/summit-legacy -f Dockerfile-legacy-summit
 
 # Build docker containers
-build: (docker-build "summit") (docker-build "vessel")
+build: docker-build-legacy (docker-build "vessel")
 
 # Bring up docker containers
 up: build

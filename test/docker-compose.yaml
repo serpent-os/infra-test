@@ -10,6 +10,13 @@ services:
   #     vessel:
   #       condition: service_started
   #       restart: true
+  summit:
+    image: serpentos/summit-legacy
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./summit-legacy:/summit/state
+    user: ${MY_UID}:${MY_GID}
   vessel:
     image: serpentos/vessel
     ports:
