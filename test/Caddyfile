@@ -1,0 +1,4 @@
+caddy:80, localhost:80 {
+	root * /static/
+	file_server browse
+}

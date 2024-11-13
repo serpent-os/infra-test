@@ -2,7 +2,7 @@
 crates/**/.privkey
 *.db
 
-test/summit-legacy/cache
-test/summit-legacy/db
-test/avalanche-legacy/cache
-test/avalanche-legacy/db
+test/**/state/cache
+test/**/state/db
+test/**/state/public
+test/**/state/staging

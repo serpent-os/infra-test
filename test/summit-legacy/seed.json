@@ -1,0 +1,27 @@
+{
+    "projects":
+    [
+        {
+            "name": "Test",
+            "slug": "test",
+            "description": "Test recipes",
+            "profiles":
+            [
+                {
+                    "name": "test-x86_64",
+                    "arch": "x86_64",
+                    "indexURI": "http://caddy/volatile/x86_64/stone.index",
+                    "remotes": []
+                }
+            ],
+            "repos":
+            [
+                {
+                    "name": "recipes",
+                    "summary": "Test recipes",
+                    "uri": "https://github.com/tarkah/recipes.git"
+                },
+            ]
+        }
+    ]
+}

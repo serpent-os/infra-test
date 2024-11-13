@@ -28,7 +28,7 @@ operation!(
 operation!(
     RefreshToken,
     GET,
-    "services/refreshToken",
+    "services/refresh_token",
     NOT_EXPIRED | BEARER_TOKEN | SERVICE_ACCOUNT,
     resp: String
 );
@@ -36,7 +36,7 @@ operation!(
 operation!(
     RefreshIssueToken,
     GET,
-    "services/refreshIssueToken",
+    "services/refresh_issue_token",
     BEARER_TOKEN | SERVICE_ACCOUNT,
     resp: String
 );
