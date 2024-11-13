@@ -1,5 +1,7 @@
 //! An implementation of endpoint service operations
 
+use std::time::Duration;
+
 use http::Uri;
 use thiserror::Error;
 use tracing::{debug, error, info};
@@ -11,6 +13,7 @@ use crate::{
         self,
         enrollment::{self, Issuer},
     },
+    error,
     sync::SharedMap,
     token, Config, Database, Role, Token,
 };
@@ -95,9 +98,7 @@ async fn enroll(request: api::Request<api::v1::services::Enroll>, state: State) 
 
     debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
-    // We validated this is a legitimate request from the configured upstream
-    // so we can auto accept
-    enrollment::Received {
+    let recieved = enrollment::Received {
         endpoint,
         account,
         remote: enrollment::Remote {
@@ -106,9 +107,19 @@ async fn enroll(request: api::Request<api::v1::services::Enroll>, state: State) 
             role: issuer.role,
             bearer_token: verified_token,
         },
-    }
-    .accept(&state.db, state.issuer.clone())
-    .await?;
+    };
+
+    // Return from handler and accept in background
+    //
+    // D infra expects this operation returns before we
+    // respond w/ acceptance
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        if let Err(e) = recieved.accept(&state.db, state.issuer.clone()).await {
+            error!(error=%error::chain(e), "Auto accept failed")
+        };
+    });
 
     Ok(())
 }

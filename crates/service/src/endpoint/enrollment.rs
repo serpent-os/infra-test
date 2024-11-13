@@ -3,14 +3,14 @@
 use http::Uri;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, info};
+use tracing::{debug, error, info, info_span};
 
 use crate::{
     account, api, client,
     crypto::{EncodedPublicKey, KeyPair, PublicKey},
-    database, endpoint,
+    database, endpoint, error,
     token::{self, VerifiedToken},
-    Account, Client, Database, Endpoint, Role,
+    Account, Client, Database, Endpoint, Role, State,
 };
 
 /// An issuer of enrollment requests
@@ -94,6 +94,52 @@ pub struct Target {
     pub public_key: PublicKey,
     /// Target endpoint role
     pub role: Role,
+}
+
+/// Send auto-enrollment to the list of targets if the endpoint isn't already configured
+pub(crate) async fn auto_enrollment(targets: &[Target], ourself: Issuer, state: &State) -> Result<(), Error> {
+    let endpoints = Endpoint::list(&state.db).await.map_err(Error::ListEndpoints)?;
+
+    for target in targets {
+        let mut enrolled = false;
+
+        let span = info_span!(
+            "auto_enrollment",
+            url = %target.host_address,
+            public_key = %target.public_key,
+            role = %target.role,
+        );
+        let _guard = span.enter();
+
+        if let Some(endpoint) = endpoints.iter().find(|e| e.host_address == target.host_address) {
+            let account = Account::get(&state.db, endpoint.account)
+                .await
+                .map_err(Error::ReadAccount)?;
+
+            if account.public_key == target.public_key.encode() {
+                enrolled = true;
+
+                debug!("Endpoint already enrolled");
+            }
+        }
+
+        if !enrolled {
+            debug!("Sending enrollment request");
+
+            let Ok(enrollment) = send(target.clone(), ourself.clone())
+                .await
+                .inspect_err(|e| error!(error=%error::chain(e), "Enrollment request failed"))
+            else {
+                continue;
+            };
+
+            state.pending_sent.insert(enrollment.endpoint, enrollment).await;
+
+            info!("Enrollment sent");
+        }
+    }
+
+    Ok(())
 }
 
 #[tracing::instrument(
@@ -215,7 +261,7 @@ impl Received {
 
         info!(
             expiration = %bearer_token.expires(),
-            "Account token created",
+            "Bearer token created",
         );
 
         let resp = Client::new(self.remote.host_address)
@@ -338,7 +384,7 @@ impl Sent {
 
         info!(
             expiration = %self.bearer_token.expires(),
-            "Account token saved",
+            "Bearer token saved",
         );
 
         info!("Accepted endpoint now operational");

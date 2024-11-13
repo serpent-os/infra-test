@@ -1,5 +1,5 @@
 //! Make requests to service APIs
-use std::{convert::Infallible, sync::LazyLock, time::Duration};
+use std::{any, convert::Infallible, sync::LazyLock, time::Duration};
 
 use http::Uri;
 use service_core::auth;
@@ -81,7 +81,7 @@ where
     )]
     pub async fn send<O>(&self, body: &O::RequestBody) -> Result<O::ResponseBody, Error<A::Error>>
     where
-        O: api::Operation,
+        O: api::Operation + 'static,
     {
         let mut token = None;
 
@@ -133,20 +133,32 @@ where
 
     async fn raw_send<O>(&self, body: &O::RequestBody, token: Option<&str>) -> Result<O::ResponseBody, reqwest::Error>
     where
-        O: api::Operation,
+        O: api::Operation + 'static,
     {
         let mut request = CLIENT.request(
             O::METHOD,
-            format!("{}/api/{}/{}", self.host_address, O::VERSION, O::PATH),
+            format!("{}api/{}/{}", self.host_address, O::VERSION, O::PATH),
         );
 
         if let Some(token) = token {
             request = request.bearer_auth(token);
         }
 
-        let resp = CLIENT.execute(request.json(body).build()?).await?;
+        // Send () as empty body
+        if any::TypeId::of::<O::RequestBody>() == any::TypeId::of::<()>() {
+            request = request.body(reqwest::Body::default());
+        } else {
+            request = request.json(body);
+        }
 
-        resp.json::<O::ResponseBody>().await
+        let resp = CLIENT.execute(request.build()?).await?.error_for_status()?;
+
+        // Support empty body into ()
+        if any::TypeId::of::<O::ResponseBody>() == any::TypeId::of::<()>() {
+            Ok(serde_json::from_slice(b"null").expect("null is ()"))
+        } else {
+            resp.json::<O::ResponseBody>().await
+        }
     }
 
     #[tracing::instrument(

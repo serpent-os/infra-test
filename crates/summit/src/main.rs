@@ -23,9 +23,9 @@ async fn main() -> Result<()> {
 
     let state = State::load(root).await?;
 
-    info!("vessel listening on {host}:{port}");
+    info!("summit listening on {host}:{port}");
 
-    let mut grpc = Server::new(Role::RepositoryManager, &config, &state)
+    let mut grpc = Server::new(Role::Hub, &config, &state)
         .start((host, port))
         .boxed()
         .fuse();

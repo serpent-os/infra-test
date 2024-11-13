@@ -1,0 +1,18 @@
+description = "Summit (test)"
+host_address = "http://summit:5000"
+
+[tracing]
+level_filter = "info,summit=debug,service=debug"
+# compact or json
+format = "compact"
+
+[admin]
+username = "admin"
+name = "Admin"
+email = "admin@serpentos.com"
+public_key = "9eBMCOKXlF16+yCNqHhBdg7S3CY9gOu8qqH/zPX1yp0"
+
+[[downstream]]
+host_address = "http://vessel:5001"
+public_key = "uxV+S0soSdALp8G+IVbjJMmATzTCfA+8abkNbJ7PKt8"
+role = "RepositoryManager"

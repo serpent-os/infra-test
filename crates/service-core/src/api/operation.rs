@@ -1,19 +1,30 @@
+//! An API operation
 use http;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::api::Version;
 use crate::auth;
 
+/// An API operation
 pub trait Operation {
+    /// Request body
     type RequestBody: Serialize + DeserializeOwned;
+    /// Response body
     type ResponseBody: Serialize + DeserializeOwned;
 
+    /// API version
     const VERSION: Version;
+    /// HTTP method
     const METHOD: http::Method;
+    /// Path
+    ///
+    /// Final path is constructed as `/api/{version}/{path}`
     const PATH: &'static str;
+    /// Required authentication flags
     const AUTH: auth::Flags;
 }
 
+/// Define an [`Operation`]
 #[macro_export]
 macro_rules! operation {
     ($ty:ident, $method:ident, $path:literal) => {

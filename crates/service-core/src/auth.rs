@@ -1,3 +1,4 @@
+//! Authentication
 use bitflags::bitflags;
 
 bitflags! {
@@ -25,6 +26,7 @@ bitflags! {
     }
 }
 
+/// Combine [`Flags`]
 #[macro_export]
 macro_rules! auth {
     ($first:ident $(| $other:ident)*) => {
@@ -34,6 +36,7 @@ macro_rules! auth {
     };
 }
 
+/// Convert [`Flags`] to an array of flag names
 pub fn flag_names(flags: Flags) -> Vec<String> {
     flags.iter_names().map(|(name, _)| name.to_string()).collect()
 }

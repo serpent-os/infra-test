@@ -9,7 +9,7 @@ use tokio::fs;
 use crate::{
     account::Admin,
     crypto::{KeyPair, PublicKey},
-    endpoint::enrollment::Issuer,
+    endpoint::enrollment::{self, Issuer},
     tracing, Role,
 };
 
@@ -30,6 +30,11 @@ pub struct Config {
     ///
     /// Only applicable for non-hub services
     pub upstream: Option<PublicKey>,
+    /// Downstream services to send enrollment to
+    ///
+    /// Only applicable for hub service
+    #[serde(default)]
+    pub downstream: Vec<enrollment::Target>,
 }
 
 impl Config {

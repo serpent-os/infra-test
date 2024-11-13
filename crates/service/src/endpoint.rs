@@ -124,7 +124,7 @@ impl Endpoint {
               role,
               work_status
             )
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(account_id) DO UPDATE SET 
               host_address=excluded.host_address,
               status=excluded.status,

@@ -7,7 +7,11 @@ use thiserror::Error;
 use tokio::net::ToSocketAddrs;
 use tracing::error;
 
-use crate::{account, api, endpoint, middleware, token, Config, Role, State};
+use crate::{
+    account, api,
+    endpoint::{self, enrollment},
+    error, middleware, token, Config, Role, State,
+};
 
 /// Start the [`Server`] without additional configuration
 pub async fn start(addr: impl ToSocketAddrs, role: Role, config: &Config, state: &State) -> Result<(), Error> {
@@ -20,6 +24,7 @@ pub struct Server<'a> {
     router: axum::Router,
     config: &'a Config,
     state: &'a State,
+    role: Role,
     extract_token: middleware::ExtractToken,
 }
 
@@ -34,6 +39,7 @@ impl<'a> Server<'a> {
             router,
             config,
             state,
+            role,
             extract_token: middleware::ExtractToken {
                 pub_key: state.key_pair.public_key(),
                 validation: token::Validation::new().iss(role.service_name()),
@@ -51,16 +57,37 @@ impl<'a> Server<'a> {
         }
     }
 
+    /// Merges an [`axum::Router`] with the server
+    pub fn merge(self, router: impl Into<axum::Router>) -> Self {
+        Self {
+            router: self.router.merge(router),
+            ..self
+        }
+    }
+
     /// Start the server and perform the following:
     ///
     /// - Sync the defined [`Config::admin`] to the service [`Database`] to ensure
     ///   it's credentials can authenticate and hit all admin endpoints.
+    /// - Send auto-enrollment for all [`Config::downstream`] targets defined when [`Role::Hub`]
     /// - Start the underlying server to handle endpoint API routes
     ///   and any additional API routes added via [`Server::merge_api`].
     ///
     /// [`Database`]: crate::Database
     pub async fn start(self, addr: impl ToSocketAddrs) -> Result<(), Error> {
         account::sync_admin(&self.state.db, self.config.admin.clone()).await?;
+
+        if self.role == Role::Hub {
+            if let Err(e) = enrollment::auto_enrollment(
+                &self.config.downstream,
+                self.config.issuer(self.role, self.state.key_pair.clone()),
+                self.state,
+            )
+            .await
+            {
+                error!(error = %error::chain(e), "Auto enrollment failed");
+            }
+        }
 
         let app = axum::Router::new()
             .nest("/", self.router)
