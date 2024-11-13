@@ -15,7 +15,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./summit-legacy:/summit/state
+      - ./summit-legacy:/app/state
     user: ${MY_UID}:${MY_GID}
   vessel:
     image: serpentos/vessel
@@ -23,4 +23,11 @@ services:
       - "5001:5001"
     volumes:
       - ./vessel:/state
+    user: ${MY_UID}:${MY_GID}
+  avalanche:
+    image: serpentos/avalanche-legacy
+    ports:
+      - "5002:5002"
+    volumes:
+      - ./avalanche-legacy:/app/state
     user: ${MY_UID}:${MY_GID}

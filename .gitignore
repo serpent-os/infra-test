@@ -4,3 +4,5 @@ crates/**/.privkey
 
 test/summit-legacy/cache
 test/summit-legacy/db
+test/avalanche-legacy/cache
+test/avalanche-legacy/db

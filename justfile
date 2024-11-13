@@ -11,11 +11,11 @@ docker-build target:
 	@docker build . -t serpentos/{{target}} --target {{target}}
 
 [private]
-docker-build-legacy:
-	@docker build . -t serpentos/summit-legacy -f Dockerfile-legacy-summit
+docker-build-legacy target:
+	@docker build . -t serpentos/{{target}}-legacy --target {{target}} -f Dockerfile-legacy  
 
 # Build docker containers
-build: docker-build-legacy (docker-build "vessel")
+build: (docker-build-legacy "summit") (docker-build-legacy "avalanche") (docker-build "vessel")
 
 # Bring up docker containers
 up: build
