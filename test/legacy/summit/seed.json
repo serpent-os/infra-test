@@ -11,7 +11,13 @@
                     "name": "test-x86_64",
                     "arch": "x86_64",
                     "indexURI": "http://caddy/volatile/x86_64/stone.index",
-                    "remotes": []
+                    "remotes": [
+                        {
+                            "name": "volatile",
+                            "uri": "https://dev.serpentos.com/volatile/x86_64/stone.index",
+                            "priority": 10
+                        }
+                    ]
                 }
             ],
             "repos":
@@ -19,7 +25,7 @@
                 {
                     "name": "recipes",
                     "summary": "Test recipes",
-                    "uri": "https://github.com/tarkah/recipes.git"
+                    "uri": "https://github.com/serpent-os/infra-test.git"
                 },
             ]
         }

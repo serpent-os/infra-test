@@ -1,34 +1,42 @@
 services:
   # Legacy
   summit:
-    image: serpentos/summit-legacy
+    image: serpentos/summit:legacy
     ports:
       - "5000:5000"
     volumes:
-      - ./summit-legacy/state:/app/state
-      - ./summit-legacy/seed.json:/app/seed.json
-    user: ${MY_UID}:${MY_GID}
+      - summit-state:/app/state
+      - ./legacy/summit/.seed:/app/state/.seed
+      - ./legacy/summit/seed.json:/app/seed.json
+    depends_on:
+      vessel:
+        condition: service_started
   vessel:
-    image: serpentos/vessel-legacy
+    image: serpentos/vessel:legacy
     ports:
       - "5001:5001"
     volumes:
-      - ./vessel-legacy/state:/app/state
-    user: ${MY_UID}:${MY_GID}
+      - vessel-state:/app/state
+      - ./legacy/vessel/.seed:/app/state/.seed
+      - ./legacy/vessel/import:/import
+    depends_on:
+      caddy:
+        condition: service_started
   avalanche:
-    image: serpentos/avalanche-legacy
+    image: serpentos/avalanche:legacy
     ports:
       - "5002:5002"
+    privileged: true
     volumes:
-      - ./avalanche-legacy/state:/app/state
-    user: ${MY_UID}:${MY_GID}
+      - avalanche-state:/app/state
+      - ./legacy/avalanche/.seed:/app/state/.seed
   caddy:
     image: caddy:2
     ports: 
       - "5003:80"
     volumes:
-      - ./vessel-legacy/state/public:/static
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - vessel-state:/vessel
+      - ./legacy/Caddyfile:/etc/caddy/Caddyfile
   # Rust
   # vessel:
   #   image: serpentos/vessel
@@ -37,3 +45,8 @@ services:
   #   volumes:
   #     - ./vessel:/state
   #   user: ${MY_UID}:${MY_GID}
+
+volumes:
+  summit-state:
+  vessel-state:
+  avalanche-state:

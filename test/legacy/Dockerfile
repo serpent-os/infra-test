@@ -19,7 +19,7 @@ RUN chmod +x ~/dlang/install.sh
 RUN ~/dlang/install.sh install ldc-1.32.2
 RUN git clone https://github.com/serpent-os/libmoss.git
 RUN git clone https://github.com/serpent-os/moss-service.git
-RUN git clone https://github.com/serpent-os/summit.git
+RUN git clone https://github.com/serpent-os/summit.git && cd summit && git checkout feat/build-remotes
 RUN git clone https://github.com/serpent-os/vessel.git
 RUN git clone https://github.com/serpent-os/avalanche.git
 RUN --mount=type=cache,target=/root/.dub <<"EOT" /bin/bash
@@ -37,12 +37,17 @@ RUN --mount=type=cache,target=/root/.dub <<"EOT" /bin/bash
 	cd avalanche
 	dub build --parallel
 EOT
+# Install boulder
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+RUN git clone https://github.com/serpent-os/tools.git && cd tools && git checkout fix/run-in-docker
+RUN ~/.cargo/bin/cargo install --path tools/boulder
 
 FROM debian:bookworm-slim AS base
 RUN apt update
 RUN apt install -y \
 	git \
 	sudo \
+	iproute2 \
 	libcurl4 \
 	libdbus-1-3 \
 	liblmdb0 \
@@ -72,7 +77,9 @@ CMD ["/app/vessel", "-a", "0.0.0.0", "-p", "5001"]
 
 FROM base as avalanche
 COPY --from=builder /avalanche /app
-RUN mkdir -p /app/public && chmod 777 /app/public
+COPY --from=builder /root/.cargo/bin/boulder /usr/bin/boulder
+COPY --from=builder /tools/boulder/data/macros /usr/share/boulder/macros
+RUN mkdir -p /app/public
 RUN mkdir -p /var/cache/boulder
 VOLUME /app/state
 EXPOSE 5002
