@@ -10,7 +10,7 @@
                 {
                     "name": "test-x86_64",
                     "arch": "x86_64",
-                    "indexURI": "http://caddy/volatile/x86_64/stone.index",
+                    "indexURI": "http://caddy/dev/volatile/x86_64/stone.index",
                     "remotes": [
                         {
                             "name": "volatile",

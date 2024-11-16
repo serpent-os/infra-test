@@ -1,9 +1,15 @@
 services:
   # Legacy
+  caddy:
+    image: caddy:2
+    ports: 
+      - "5000:80"
+    volumes:
+      - vessel-state:/vessel
+      - summit-state:/summit
+      - ./legacy/Caddyfile:/etc/caddy/Caddyfile
   summit:
     image: serpentos/summit:legacy
-    ports:
-      - "5000:5000"
     volumes:
       - summit-state:/app/state
       - ./legacy/summit/.seed:/app/state/.seed
@@ -30,13 +36,6 @@ services:
     volumes:
       - avalanche-state:/app/state
       - ./legacy/avalanche/.seed:/app/state/.seed
-  caddy:
-    image: caddy:2
-    ports: 
-      - "5003:80"
-    volumes:
-      - vessel-state:/vessel
-      - ./legacy/Caddyfile:/etc/caddy/Caddyfile
   # Rust
   # vessel:
   #   image: serpentos/vessel
