@@ -1,3 +1,4 @@
+//! Handle errors
 use itertools::Itertools;
 
 /// Format an error chain

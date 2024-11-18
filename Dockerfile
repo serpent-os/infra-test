@@ -16,15 +16,19 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 EOT
 
 FROM alpine:3.20 AS summit
-VOLUME /state
+VOLUME /app/state
+VOLUME /app/config.toml
 EXPOSE 5000
 WORKDIR /app
 COPY --from=rust-builder /summit .
-CMD ["/app/summit", "0.0.0.0", "--port", "5000", "--root", "/state"]
+CMD ["/app/summit", "0.0.0.0", "--port", "5000", "--root", "/app"]
 
 FROM alpine:3.20 AS vessel
-VOLUME /state
+VOLUME /app/state
+VOLUME /app/config.toml
 EXPOSE 5001
 WORKDIR /app
 COPY --from=rust-builder /vessel .
-CMD ["/app/vessel", "0.0.0.0", "--port", "5001", "--root", "/state"]
+# TODO: Remove
+COPY ./test/import/stone.index /app/state/public/volatile/x86_64/stone.index
+CMD ["/app/vessel", "0.0.0.0", "--port", "5001", "--root", "/app"]

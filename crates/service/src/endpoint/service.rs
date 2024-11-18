@@ -207,6 +207,9 @@ async fn refresh_token(request: api::Request<api::v1::services::RefreshToken>, s
         .token
         .ok_or(Error::MissingRequestToken)?
         .decoded
+        // Bearer token is provided, so make sure
+        // we return an access token
+        .with_purpose(token::Purpose::Authentication)
         .refresh()
         .sign(&state.issuer.key_pair)
         .map_err(Error::SignToken)

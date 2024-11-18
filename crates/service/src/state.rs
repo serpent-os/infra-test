@@ -1,5 +1,8 @@
 //! Shared service state
-use std::{io, path::Path};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use thiserror::Error;
 use tokio::fs;
@@ -16,6 +19,10 @@ use crate::{
 /// Service state
 #[derive(Debug, Clone)]
 pub struct State {
+    /// State directory
+    pub dir: PathBuf,
+    /// Database directory
+    pub db_dir: PathBuf,
     /// Service database
     pub db: Database,
     /// Key pair used by the service
@@ -30,8 +37,15 @@ impl State {
     /// Load state from the provided path. If no keypair and/or database exist, they will be created.
     #[tracing::instrument(name = "load_state", skip_all)]
     pub async fn load(root: impl AsRef<Path>) -> Result<Self, Error> {
-        let db_path = root.as_ref().join("service.db");
-        let key_path = root.as_ref().join(".privkey");
+        let dir = root.as_ref().join("state");
+        let db_dir = dir.join("db");
+
+        if !db_dir.exists() {
+            fs::create_dir_all(&db_dir).await.map_err(Error::CreateDbDir)?;
+        }
+
+        let db_path = db_dir.join("service.db");
+        let key_path = dir.join(".privkey");
 
         let db = Database::new(&db_path).await?;
         debug!(path = ?db_path, "Database opened");
@@ -55,6 +69,8 @@ impl State {
         };
 
         Ok(Self {
+            dir,
+            db_dir,
             db,
             key_pair,
             pending_sent: Default::default(),
@@ -65,6 +81,9 @@ impl State {
 /// A state error
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Error creating db directory
+    #[error("create db directory")]
+    CreateDbDir(#[source] io::Error),
     /// Loading database failed
     #[error("load database")]
     LoadDatabase(#[from] database::Error),

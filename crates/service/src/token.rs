@@ -96,6 +96,17 @@ impl Token {
             ..self.clone()
         }
     }
+
+    /// Change the purpose of this token
+    pub fn with_purpose(self, purpose: Purpose) -> Self {
+        Self {
+            header: self.header,
+            payload: Payload {
+                purpose,
+                ..self.payload
+            },
+        }
+    }
 }
 
 /// A token that's been verified via [`Token::verify`]
@@ -181,6 +192,11 @@ pub struct Payload {
     /// Account type of the holder
     #[serde(rename = "act")]
     pub account_type: account::Kind,
+    /// Is this an admin account?
+    ///
+    /// This is needed by legacy infra since it
+    /// doesn't define admin as an [`account::Kind`]
+    pub admin: bool,
 }
 
 /// Purpose of the token
@@ -256,6 +272,7 @@ mod test {
                 purpose: Purpose::Authorization,
                 account_id: 0.into(),
                 account_type: account::Kind::Admin,
+                admin: true,
             },
         };
 

@@ -360,6 +360,7 @@ pub(crate) fn create_token(
         purpose,
         account_id: account,
         account_type: account::Kind::Service,
+        admin: false,
     });
     let account_token = token.sign(&ourself.key_pair)?;
 

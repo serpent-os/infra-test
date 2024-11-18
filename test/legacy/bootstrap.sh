@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-SERVICES=(summit vessel avalanche)
+SERVICES=(summit avalanche)
 
 declare -A KEYS
 KEYS['summit']=5zIaXc6Cn9qEAk2rNcyu-KDVtdFGcJtx9p2gZdDaxhU
-KEYS['vessel']=qA2GABojHXC7nKo1zCOko2XjktavqGOGUN6Nq9jmUYQ
+KEYS['vessel']=uxV-S0soSdALp8G-IVbjJMmATzTCfA-8abkNbJ7PKt8
 KEYS['avalanche']=C64M-DMlib7vl_DAFRPAkKzok6cJ2el1fMxd-LdlGZ0
 
 declare -A PORTS
@@ -59,10 +59,11 @@ curl "http://127.0.0.1:${PORTS['summit']}/api/v1/endpoints/create" \
   -b $cookies \
   -H 'Content-Type: application/json' \
   --data-raw '{"request":{"id":"official","summary":"Indexes stuff","instanceURI":"http://vessel:'"${PORTS['vessel']}"'","pubkey":"'"${KEYS['vessel']}"'","adminName":"admin","adminEmail":"admin@admin.com"}}'
-curl -b $cookies "http://127.0.0.1:${PORTS['vessel']}/vsl/accept/${KEYS['summit']}" 
+# vessel-rs auto-accepts
+# curl -b $cookies "http://127.0.0.1:${PORTS['vessel']}/vsl/accept/${KEYS['summit']}" 
 
-echo "Importing stones"
-curl -b $cookies "http://127.0.0.1:${PORTS['vessel']}/vsl/import?importPath=%2Fimport"
+# echo "Importing stones"
+# curl -b $cookies "http://127.0.0.1:${PORTS['vessel']}/vsl/import?importPath=%2Fimport"
 
 echo "Restarting summit"
 docker compose restart summit

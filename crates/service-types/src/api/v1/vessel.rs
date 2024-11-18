@@ -7,7 +7,7 @@ operation!(Build, POST, "vessel/build", ACCESS_TOKEN | SERVICE_ACCOUNT | NOT_EXP
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildRequestBody {
-    #[serde(alias = "taskID")]
+    #[serde(rename = "taskID")]
     pub task_id: u64,
     pub collectables: Vec<Collectable>,
 }

@@ -8,6 +8,12 @@ use tracing::info;
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
 
+use self::collection_db::CollectionDb;
+
+mod api;
+mod collection_db;
+mod worker;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let Args {
@@ -25,16 +31,21 @@ async fn main() -> Result<()> {
 
     info!("vessel listening on {host}:{port}");
 
-    let mut grpc = Server::new(Role::RepositoryManager, &config, &state)
+    let (worker_sender, worker_task) = worker::run(&state).await?;
+
+    let mut http = Server::new(Role::RepositoryManager, &config, &state)
+        .merge_api(api::service(state.db.clone(), worker_sender))
         .start((host, port))
         .boxed()
         .fuse();
+
     let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])
         .boxed()
         .fuse();
 
     select! {
-        res = grpc => res?,
+        res = worker_task.fuse() => res?,
+        res = http => res?,
         res = stop => res?,
     }
 

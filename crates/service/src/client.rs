@@ -151,10 +151,16 @@ where
             request = request.json(body);
         }
 
-        let resp = CLIENT.execute(request.build()?).await?.error_for_status()?;
+        let resp = CLIENT.execute(request.build()?).await?;
 
+        if let Err(e) = resp.error_for_status_ref() {
+            let status = resp.status();
+            let body = resp.text().await?;
+            error!(response = body, %status, "Request error");
+            Err(e)
+        }
         // Support empty body into ()
-        if any::TypeId::of::<O::ResponseBody>() == any::TypeId::of::<()>() {
+        else if any::TypeId::of::<O::ResponseBody>() == any::TypeId::of::<()>() {
             Ok(serde_json::from_slice(b"null").expect("null is ()"))
         } else {
             resp.json::<O::ResponseBody>().await

@@ -13,7 +13,6 @@ pub use self::server::{start, Server};
 pub use self::state::State;
 pub use self::token::Token;
 
-mod error;
 mod middleware;
 mod sync;
 
@@ -24,6 +23,8 @@ pub mod config;
 pub mod crypto;
 pub mod database;
 pub mod endpoint;
+pub mod error;
+pub mod request;
 pub mod server;
 pub mod signal;
 pub mod state;

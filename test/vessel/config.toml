@@ -1,7 +1,7 @@
 description = "Vessel (test)"
 host_address = "http://vessel:5001"
 
-upstream = "xlDUTRLRyfSxnBOtx_KvrUzKCxLUu1tHwEdQfeChMBY"
+upstream = "5zIaXc6Cn9qEAk2rNcyu-KDVtdFGcJtx9p2gZdDaxhU"
 
 [tracing]
 level_filter = "info,vessel=debug,service=debug"
