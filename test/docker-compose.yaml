@@ -1,5 +1,4 @@
 services:
-  # Legacy
   caddy:
     image: caddy:2
     ports: 
@@ -8,6 +7,7 @@ services:
       - vessel-state:/vessel
       - summit-state:/summit
       - ./legacy/Caddyfile:/etc/caddy/Caddyfile
+  # Legacy
   summit:
     image: serpentos/summit:legacy
     volumes:
@@ -17,25 +17,8 @@ services:
     depends_on:
       vessel:
         condition: service_started
-  # vessel:
-  #   image: serpentos/vessel:legacy
-  #   ports:
-  #     - "5001:5001"
-  #   volumes:
-  #     - vessel-state:/app/state
-  #     - ./legacy/vessel/.seed:/app/state/.seed
-  #     - ./import:/import
-  #   depends_on:
-  #     caddy:
-  #       condition: service_started
-  vessel:
-    image: serpentos/vessel
-    ports:
-      - "5001:5001"
-    volumes:
-      - vessel-state:/app/state
-      - ./vessel/.privkey:/app/state/.privkey
-      - ./vessel/config.toml:/app/config.toml
+      avalanche:
+        condition: service_started
   avalanche:
     image: serpentos/avalanche:legacy
     ports:
@@ -44,6 +27,19 @@ services:
     volumes:
       - avalanche-state:/app/state
       - ./legacy/avalanche/.seed:/app/state/.seed
+  # Rust
+  vessel:
+    image: serpentos/vessel
+    ports:
+      - "5001:5001"
+    volumes:
+      - vessel-state:/app/state
+      - ./vessel/.privkey:/app/state/.privkey
+      - ./vessel/config.toml:/app/config.toml
+      - ./import:/import
+    depends_on:
+      caddy:
+        condition: service_started
 
 volumes:
   summit-state:

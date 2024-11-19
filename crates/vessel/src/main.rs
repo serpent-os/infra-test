@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         port,
         config,
         root,
+        import,
     } = Args::parse();
 
     let config = Config::load(config.unwrap_or_else(|| root.join("config.toml"))).await?;
@@ -30,6 +31,10 @@ async fn main() -> Result<()> {
     info!("vessel listening on {host}:{port}");
 
     let (worker_sender, worker_task) = worker::run(&state).await?;
+
+    if let Some(directory) = import {
+        let _ = worker_sender.send(worker::Message::ImportDirectory(directory));
+    }
 
     let mut http = Server::new(Role::RepositoryManager, &config, &state)
         .merge_api(api::service(state.db.clone(), worker_sender))
@@ -60,4 +65,6 @@ struct Args {
     config: Option<PathBuf>,
     #[arg(long, short, default_value = ".")]
     root: PathBuf,
+    #[arg(long)]
+    import: Option<PathBuf>,
 }

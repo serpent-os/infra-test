@@ -59,11 +59,6 @@ curl "http://127.0.0.1:${PORTS['summit']}/api/v1/endpoints/create" \
   -b $cookies \
   -H 'Content-Type: application/json' \
   --data-raw '{"request":{"id":"official","summary":"Indexes stuff","instanceURI":"http://vessel:'"${PORTS['vessel']}"'","pubkey":"'"${KEYS['vessel']}"'","adminName":"admin","adminEmail":"admin@admin.com"}}'
-# vessel-rs auto-accepts
-# curl -b $cookies "http://127.0.0.1:${PORTS['vessel']}/vsl/accept/${KEYS['summit']}" 
-
-# echo "Importing stones"
-# curl -b $cookies "http://127.0.0.1:${PORTS['vessel']}/vsl/import?importPath=%2Fimport"
 
 echo "Restarting summit"
 docker compose restart summit

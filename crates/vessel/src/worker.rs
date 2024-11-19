@@ -1,15 +1,17 @@
 use std::{
+    ffi::OsStr,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
 use color_eyre::eyre::{self, eyre, Context, Result};
 use futures::{stream, StreamExt, TryStreamExt};
-use http::Uri;
 use moss::db::meta;
 use service::{api, request, Endpoint};
+use sha2::{Digest, Sha256};
 use tokio::{fs, sync::mpsc, time::Instant};
 use tracing::{error, info, info_span, Instrument};
+use url::Url;
 
 use crate::collection;
 
@@ -23,11 +25,12 @@ pub enum Message {
         endpoint: Endpoint,
         packages: Vec<Package>,
     },
+    ImportDirectory(PathBuf),
 }
 
 #[derive(Debug)]
 pub struct Package {
-    pub uri: Uri,
+    pub url: Url,
     pub sha256sum: String,
 }
 
@@ -120,6 +123,28 @@ async fn handle_message(state: &State, message: Message) -> Result<()> {
             .instrument(span)
             .await
         }
+        Message::ImportDirectory(directory) => {
+            let span = info_span!("import_directory", directory = directory.to_string_lossy().to_string());
+
+            async move {
+                info!("Import started");
+
+                let stones = enumerate_stones(&directory).context("enumerate stones")?;
+                let num_stones = stones.len();
+
+                if num_stones > 0 {
+                    import_packages(state, stones).await.context("import packages")?;
+
+                    info!(num_stones, "All stones imported");
+                } else {
+                    info!("No stones to import");
+                }
+
+                Ok(())
+            }
+            .instrument(span)
+            .await
+        }
     }
 }
 
@@ -204,11 +229,11 @@ fn import_package(
     let id = moss::package::Id::from(package.sha256sum.clone());
 
     let pool_dir = relative_pool_dir(&source_id)?;
-    let file_name = Path::new(package.uri.path())
+    let file_name = Path::new(package.url.path())
         .file_name()
         .ok_or(eyre!("Invalid archive, no file name in URI"))?;
     let target_path = pool_dir.join(file_name);
-    let full_path = state.state_dir.join(&target_path);
+    let full_path = state.state_dir.join("public").join(&target_path);
 
     meta.uri = Some(target_path.to_string_lossy().to_string());
 
@@ -262,7 +287,7 @@ fn import_package(
 async fn download_package(state_dir: &Path, package: Package) -> Result<(Package, PathBuf)> {
     let path = download_path(state_dir, &package.sha256sum).await?;
 
-    request::download_and_verify(package.uri.to_string().parse()?, &path, &package.sha256sum).await?;
+    request::download_and_verify(package.url.clone(), &path, &package.sha256sum).await?;
 
     Ok((package, path))
 }
@@ -296,7 +321,7 @@ fn relative_pool_dir(source_id: &str) -> Result<PathBuf> {
         portion = &lower[0..4];
     }
 
-    Ok(Path::new("public").join("pool").join(portion).join(lower))
+    Ok(Path::new("pool").join(portion).join(lower))
 }
 
 fn hardlink_or_copy(from: &Path, to: &Path) -> Result<()> {
@@ -379,4 +404,37 @@ async fn reindex(state: &State) -> Result<()> {
     info!(elapsed, "Index complete");
 
     Ok(())
+}
+
+fn enumerate_stones(dir: &Path) -> Result<Vec<Package>> {
+    use std::fs::{self, File};
+    use std::io;
+
+    let contents = fs::read_dir(dir).context("read directory")?;
+
+    let mut files = vec![];
+
+    for entry in contents {
+        let entry = entry.context("read directory entry")?;
+        let path = entry.path();
+        let meta = entry.metadata().context("read directory entry metadata")?;
+
+        if meta.is_file() && path.extension() == Some(OsStr::new("stone")) {
+            let url = format!("file://{}", path.to_string_lossy())
+                .parse()
+                .context("invalid file uri")?;
+
+            let mut hasher = Sha256::default();
+
+            io::copy(&mut File::open(&path).context("open file")?, &mut hasher).context("hash file")?;
+
+            let sha256sum = hex::encode(hasher.finalize());
+
+            files.push(Package { url, sha256sum });
+        } else if meta.is_dir() {
+            files.extend(enumerate_stones(&path)?);
+        }
+    }
+
+    Ok(files)
 }

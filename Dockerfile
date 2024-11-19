@@ -26,9 +26,8 @@ CMD ["/app/summit", "0.0.0.0", "--port", "5000", "--root", "/app"]
 FROM alpine:3.20 AS vessel
 VOLUME /app/state
 VOLUME /app/config.toml
+VOLUME /import
 EXPOSE 5001
 WORKDIR /app
 COPY --from=rust-builder /vessel .
-# TODO: Remove
-COPY ./test/import/stone.index /app/state/public/volatile/x86_64/stone.index
-CMD ["/app/vessel", "0.0.0.0", "--port", "5001", "--root", "/app"]
+CMD ["/app/vessel", "0.0.0.0", "--port", "5001", "--root", "/app", "--import", "/import"]

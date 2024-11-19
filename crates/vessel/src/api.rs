@@ -44,8 +44,8 @@ async fn import_packages(request: api::Request<api::v1::vessel::Build>, state: S
         .collectables
         .into_iter()
         .filter_map(|c| {
-            matches!(c.kind, collectable::Kind::Package).then_some(c.uri.parse().map(|uri| worker::Package {
-                uri,
+            matches!(c.kind, collectable::Kind::Package).then_some(c.uri.parse().map(|url| worker::Package {
+                url,
                 sha256sum: c.sha256sum,
             }))
         })
@@ -83,8 +83,8 @@ pub enum Error {
     #[error("invalid endpoint")]
     InvalidEndpoint(#[source] uuid::Error),
     /// Url cannot be parsed from string
-    #[error("invalid uri")]
-    InvalidUrl(#[from] http::uri::InvalidUri),
+    #[error("invalid url")]
+    InvalidUrl(#[from] url::ParseError),
     /// Failed to load endpoint from DB
     #[error("load endpoint")]
     LoadEndpoint(#[source] database::Error),
