@@ -8,10 +8,8 @@ use tracing::info;
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
 
-use self::collection_db::CollectionDb;
-
 mod api;
-mod collection_db;
+mod collection;
 mod worker;
 
 #[tokio::main]

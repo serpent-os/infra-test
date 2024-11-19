@@ -27,11 +27,11 @@ impl Record {
 }
 
 #[derive(Debug, Clone)]
-pub struct CollectionDb {
+pub struct Database {
     pool: Pool<Sqlite>,
 }
 
-impl CollectionDb {
+impl Database {
     pub async fn new(path: impl AsRef<Path>) -> Result<Self, Error> {
         let options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(path)

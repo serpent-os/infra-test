@@ -7,11 +7,11 @@ use color_eyre::eyre::{self, eyre, Context, Result};
 use futures::{stream, StreamExt, TryStreamExt};
 use http::Uri;
 use moss::db::meta;
-use service::{api, request, Database, Endpoint};
+use service::{api, request, Endpoint};
 use tokio::{fs, sync::mpsc, time::Instant};
 use tracing::{error, info, info_span, Instrument};
 
-use crate::{collection_db, CollectionDb};
+use crate::collection;
 
 pub type Sender = mpsc::UnboundedSender<Message>;
 
@@ -55,23 +55,16 @@ pub async fn run(service_state: &service::State) -> Result<(Sender, tokio::task:
 #[derive(Debug, Clone)]
 struct State {
     state_dir: PathBuf,
-    service_db: Database,
+    service_db: service::Database,
     meta_db: meta::Database,
-    collection_db: CollectionDb,
+    collection_db: collection::Database,
 }
 
 impl State {
     async fn new(service_state: &service::State) -> Result<Self> {
-        let meta_db = meta::Database::new(
-            service_state
-                .db_dir
-                .join("meta")
-                .as_os_str()
-                .to_str()
-                .ok_or(eyre!("failed to build meta db path"))?,
-        )
-        .context("failed to open meta database")?;
-        let collection_db = CollectionDb::new(service_state.db_dir.join("collection"))
+        let meta_db = meta::Database::new(service_state.db_dir.join("meta").to_string_lossy().as_ref())
+            .context("failed to open meta database")?;
+        let collection_db = collection::Database::new(service_state.db_dir.join("collection"))
             .await
             .context("failed to open collection database")?;
 
@@ -168,10 +161,9 @@ async fn import_packages(state: &State, packages: Vec<Package>) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all, fields(package = %package.uri, name, source_id))]
 fn import_package(
     state: &State,
-    collection_tx: &mut collection_db::Transaction,
+    collection_tx: &mut collection::Transaction,
     package: &Package,
     download_path: &Path,
     destructive_move: bool,
@@ -202,21 +194,20 @@ fn import_package(
 
     let mut meta = moss::package::Meta::from_stone_payload(&meta_payload.body)
         .context("convert meta payload into moss package metadata")?;
+
+    let name = meta.name.clone();
+    let source_id = meta.source_id.clone();
+
     meta.hash = Some(package.sha256sum.clone());
     meta.download_size = Some(file_size);
 
-    tracing::Span::current()
-        .record("name", meta.name.as_ref())
-        .record("source_id", &meta.source_id);
-
     let id = moss::package::Id::from(package.sha256sum.clone());
 
-    let pool_dir = relative_pool_dir(&meta.source_id)?;
-    let target_path = pool_dir.join(
-        Path::new(package.uri.path())
-            .file_name()
-            .ok_or(eyre!("Invalid archive, no file name in URI"))?,
-    );
+    let pool_dir = relative_pool_dir(&source_id)?;
+    let file_name = Path::new(package.uri.path())
+        .file_name()
+        .ok_or(eyre!("Invalid archive, no file name in URI"))?;
+    let target_path = pool_dir.join(file_name);
     let full_path = state.state_dir.join(&target_path);
 
     meta.uri = Some(target_path.to_string_lossy().to_string());
@@ -226,7 +217,7 @@ fn import_package(
     }
 
     let existing = tokio::runtime::Handle::current()
-        .block_on(state.collection_db.lookup(meta.name.as_ref()))
+        .block_on(state.collection_db.lookup(name.as_ref()))
         .context("lookup existing collection record")?;
 
     match existing {
@@ -259,14 +250,11 @@ fn import_package(
     // Will only be added once TX is committed / all packages
     // are succsefully handled
     tokio::runtime::Handle::current()
-        .block_on(collection_db::record(
-            collection_tx,
-            collection_db::Record::new(id, meta),
-        ))
+        .block_on(collection::record(collection_tx, collection::Record::new(id, meta)))
         // English why you be like this
         .context("record collection record")?;
 
-    info!("Package imported");
+    info!(file_name = file_name.to_str(), source_id, "Package imported");
 
     Ok(())
 }
@@ -325,7 +313,6 @@ fn hardlink_or_copy(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all)]
 async fn reindex(state: &State) -> Result<()> {
     let mut records = state
         .collection_db
@@ -387,7 +374,7 @@ async fn reindex(state: &State) -> Result<()> {
     .await
     .context("spawn blocking")??;
 
-    let elapsed = format!("{:.2}s", now.elapsed().as_secs_f32());
+    let elapsed = format!("{}ms", now.elapsed().as_millis());
 
     info!(elapsed, "Index complete");
 
