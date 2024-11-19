@@ -129,7 +129,11 @@ async fn handle_message(state: &State, message: Message) -> Result<()> {
             async move {
                 info!("Import started");
 
-                let stones = enumerate_stones(&directory).context("enumerate stones")?;
+                let stones = tokio::task::spawn_blocking(move || enumerate_stones(&directory))
+                    .await
+                    .context("spawn blocking")?
+                    .context("enumerate stones")?;
+
                 let num_stones = stones.len();
 
                 if num_stones > 0 {
