@@ -1,7 +1,7 @@
 //! Batteries included server that provides common service APIs
 //! over http, with the ability to handle additional consumer
 //! defined APIs
-use std::io;
+use std::{io, path::Path};
 
 use thiserror::Error;
 use tokio::net::ToSocketAddrs;
@@ -61,6 +61,17 @@ impl<'a> Server<'a> {
     pub fn merge(self, router: impl Into<axum::Router>) -> Self {
         Self {
             router: self.router.merge(router),
+            ..self
+        }
+    }
+
+    /// Serve static files under `route` from the provided `directory`
+    pub fn serve_directory(self, route: &str, directory: &Path) -> Self {
+        Self {
+            router: self.router.route_service(
+                route,
+                tower_http::services::ServeDir::new(directory).precompressed_gzip(),
+            ),
             ..self
         }
     }
