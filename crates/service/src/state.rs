@@ -1,8 +1,5 @@
 //! Shared service state
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::{io, path::PathBuf};
 
 use thiserror::Error;
 use tokio::fs;
@@ -19,8 +16,10 @@ use crate::{
 /// Service state
 #[derive(Debug, Clone)]
 pub struct State {
+    /// Root directory
+    pub root: PathBuf,
     /// State directory
-    pub dir: PathBuf,
+    pub state_dir: PathBuf,
     /// Database directory
     pub db_dir: PathBuf,
     /// Service database
@@ -36,16 +35,18 @@ pub struct State {
 impl State {
     /// Load state from the provided path. If no keypair and/or database exist, they will be created.
     #[tracing::instrument(name = "load_state", skip_all)]
-    pub async fn load(root: impl AsRef<Path>) -> Result<Self, Error> {
-        let dir = root.as_ref().join("state");
-        let db_dir = dir.join("db");
+    pub async fn load(root: impl Into<PathBuf>) -> Result<Self, Error> {
+        let root = root.into();
+
+        let state_dir = root.join("state");
+        let db_dir = state_dir.join("db");
 
         if !db_dir.exists() {
             fs::create_dir_all(&db_dir).await.map_err(Error::CreateDbDir)?;
         }
 
         let db_path = db_dir.join("service.db");
-        let key_path = dir.join(".privkey");
+        let key_path = state_dir.join(".privkey");
 
         let db = Database::new(&db_path).await?;
         debug!(path = ?db_path, "Database opened");
@@ -69,7 +70,8 @@ impl State {
         };
 
         Ok(Self {
-            dir,
+            root,
+            state_dir,
             db_dir,
             db,
             key_pair,

@@ -19,14 +19,6 @@ services:
         condition: service_started
       avalanche:
         condition: service_started
-  avalanche:
-    image: serpentos/avalanche:legacy
-    ports:
-      - "5002:5002"
-    privileged: true
-    volumes:
-      - avalanche-state:/app/state
-      - ./legacy/avalanche/.seed:/app/state/.seed
   # Rust
   vessel:
     image: serpentos/vessel
@@ -40,6 +32,15 @@ services:
     depends_on:
       caddy:
         condition: service_started
+  avalanche:
+    image: serpentos/avalanche
+    ports:
+      - "5002:5002"
+    privileged: true
+    volumes:
+      - avalanche-state:/app/state
+      - ./avalanche/.privkey:/app/state/.privkey
+      - ./avalanche/config.toml:/app/config.toml
 
 volumes:
   summit-state:

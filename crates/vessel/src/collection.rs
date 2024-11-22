@@ -45,7 +45,7 @@ impl Database {
     async fn connect(options: SqliteConnectOptions) -> Result<Self, Error> {
         let pool = sqlx::SqlitePool::connect_with(options).await?;
 
-        sqlx::migrate!("src/collection_db/migrations").run(&pool).await?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(Self { pool })
     }

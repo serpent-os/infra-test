@@ -72,7 +72,7 @@ impl State {
             .context("failed to open collection database")?;
 
         Ok(Self {
-            state_dir: service_state.dir.clone(),
+            state_dir: service_state.state_dir.clone(),
             service_db: service_state.db.clone(),
             meta_db,
             collection_db,

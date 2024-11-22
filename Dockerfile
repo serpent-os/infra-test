@@ -2,13 +2,20 @@ FROM rust:alpine3.20 AS rust-builder
 ENV RUSTUP_HOME="/usr/local/rustup" \
     CARGO_HOME="/usr/local/cargo" \
     CARGO_TARGET_DIR="/tmp/target"
+RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static git
 WORKDIR /src
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git <<"EOT" /bin/sh
+    git clone https://github.com/serpent-os/tools /tools
+    cd /tools
+    git checkout fix/run-in-docker
+    cargo install --path ./boulder
+EOT
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/tmp/target \
     --mount=type=bind,target=/src <<"EOT" /bin/sh
-    for target in vessel summit
+    for target in vessel summit avalanche
     do
       cargo build -p "$target"
       cp "/tmp/target/debug/$target" /
@@ -16,18 +23,29 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 EOT
 
 FROM alpine:3.20 AS summit
+WORKDIR /app
+COPY --from=rust-builder /summit .
 VOLUME /app/state
 VOLUME /app/config.toml
 EXPOSE 5000
-WORKDIR /app
-COPY --from=rust-builder /summit .
 CMD ["/app/summit", "0.0.0.0", "--port", "5000", "--root", "/app"]
 
 FROM alpine:3.20 AS vessel
+WORKDIR /app
+COPY --from=rust-builder /vessel .
 VOLUME /app/state
 VOLUME /app/config.toml
 VOLUME /import
 EXPOSE 5001
-WORKDIR /app
-COPY --from=rust-builder /vessel .
 CMD ["/app/vessel", "0.0.0.0", "--port", "5001", "--root", "/app", "--import", "/import"]
+
+FROM alpine:3.20 AS avalanche
+WORKDIR /app
+RUN apk add --no-cache sudo git
+COPY --from=rust-builder /avalanche .
+COPY --from=rust-builder /usr/local/cargo/bin/boulder /usr/bin/boulder
+COPY --from=rust-builder /tools/boulder/data/macros /usr/share/boulder/macros
+VOLUME /app/state
+VOLUME /app/config.toml
+EXPOSE 5002
+CMD ["/app/avalanche", "0.0.0.0", "--port", "5002", "--root", "/app"]

@@ -12,7 +12,7 @@ pub enum Kind {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Collectable {
-    #[serde(alias = "type")]
+    #[serde(rename = "type")]
     pub kind: Kind,
     pub uri: String,
     pub sha256sum: String,

@@ -66,9 +66,9 @@ impl<'a> Server<'a> {
     }
 
     /// Serve static files under `route` from the provided `directory`
-    pub fn serve_directory(self, route: &str, directory: &Path) -> Self {
+    pub fn serve_directory(self, route: &str, directory: impl AsRef<Path>) -> Self {
         Self {
-            router: self.router.route_service(
+            router: self.router.nest_service(
                 route,
                 tower_http::services::ServeDir::new(directory).precompressed_gzip(),
             ),
