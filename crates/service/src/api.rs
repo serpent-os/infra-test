@@ -10,22 +10,21 @@ use axum::{
 };
 use futures::{future::BoxFuture, FutureExt};
 
-pub use http::Method;
-
 use serde::Serialize;
-pub use service_core::api::{
-    operation::{self, Operation},
-    Version,
-};
 use service_core::auth;
-pub use service_types::api::v1;
 use tracing::warn;
 
 use crate::{middleware, token::VerifiedToken};
 
+pub use service_core::api::{
+    operation::{self, Operation},
+    Version,
+};
+
 pub use self::handler::Handler;
 
 pub mod handler;
+pub mod v1;
 
 type RawRequest = axum::extract::Request;
 type RawResponse = axum::response::Response;

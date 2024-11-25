@@ -1,5 +1,7 @@
 use std::{
+    convert::Infallible,
     ffi::OsStr,
+    future::Future,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
@@ -34,12 +36,12 @@ pub struct Package {
     pub sha256sum: String,
 }
 
-pub async fn run(service_state: &service::State) -> Result<(Sender, tokio::task::JoinHandle<()>)> {
+pub async fn run(service_state: &service::State) -> Result<(Sender, impl Future<Output = Result<(), Infallible>>)> {
     let state = State::new(service_state).await.context("construct state")?;
 
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
 
-    let task = tokio::spawn(async move {
+    let task = async move {
         while let Some(message) = receiver.recv().await {
             let kind = message.to_string();
 
@@ -50,7 +52,9 @@ pub async fn run(service_state: &service::State) -> Result<(Sender, tokio::task:
         }
 
         info!("Worker exiting");
-    });
+
+        Ok(())
+    };
 
     Ok((sender, task))
 }

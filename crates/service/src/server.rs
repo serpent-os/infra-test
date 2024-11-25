@@ -1,17 +1,15 @@
 //! Batteries included server that provides common service APIs
 //! over http, with the ability to handle additional consumer
 //! defined APIs
-use std::{io, path::Path};
+use std::{future::IntoFuture, io, path::Path, time::Duration};
 
 use thiserror::Error;
 use tokio::net::ToSocketAddrs;
 use tracing::error;
 
-use crate::{
-    account, api,
-    endpoint::{self, enrollment},
-    error, middleware, token, Config, Role, State,
-};
+use crate::{account, api, endpoint::enrollment, error, middleware, signal, task, token, Config, Role, State};
+
+pub use crate::task::CancellationToken;
 
 /// Start the [`Server`] without additional configuration
 pub async fn start(addr: impl ToSocketAddrs, role: Role, config: &Config, state: &State) -> Result<(), Error> {
@@ -26,14 +24,15 @@ pub struct Server<'a> {
     state: &'a State,
     role: Role,
     extract_token: middleware::ExtractToken,
+    signals: Vec<signal::Kind>,
+    runner: task::Runner,
 }
 
 impl<'a> Server<'a> {
     /// Create a new [`Server`]
     pub fn new(role: Role, config: &'a Config, state: &'a State) -> Self {
-        // All services have an endpoint service
-        let endpoint_service = endpoint::service(role, config, state);
-        let router = axum::Router::new().merge(endpoint_service.into_router());
+        let shared_services = api::v1::services(role, config, state);
+        let router = axum::Router::new().merge(shared_services.into_router());
 
         Self {
             router,
@@ -44,11 +43,49 @@ impl<'a> Server<'a> {
                 pub_key: state.key_pair.public_key(),
                 validation: token::Validation::new().iss(role.service_name()),
             },
+            signals: vec![signal::Kind::terminate(), signal::Kind::interrupt()],
+            runner: task::Runner::new(),
         }
     }
 }
 
 impl<'a> Server<'a> {
+    /// Override the default graceful shutdown duration (5s)
+    pub fn with_graceful_shutdown(self, duration: Duration) -> Self {
+        Self {
+            runner: self.runner.with_graceful_shutdown(duration),
+            ..self
+        }
+    }
+
+    /// Add a task which is killed immediately upon shutdown sequence
+    pub fn with_task<F, E>(self, name: &'static str, task: F) -> Self
+    where
+        F: IntoFuture<Output = Result<(), E>>,
+        F::IntoFuture: Send + 'static,
+        E: std::error::Error + Send + 'static,
+    {
+        Self {
+            runner: self.runner.with_task(name, task),
+            ..self
+        }
+    }
+
+    /// Add a task which can monitor shutdown sequence via [`CancellationToken`].
+    /// The task is given graceful shutdown duration to cleanup & exit before being
+    /// forcefully killed.
+    pub fn with_cancellation_task<F, E>(self, name: &'static str, f: impl FnOnce(CancellationToken) -> F) -> Self
+    where
+        F: IntoFuture<Output = Result<(), E>>,
+        F::IntoFuture: Send + 'static,
+        E: std::error::Error + Send + 'static,
+    {
+        Self {
+            runner: self.runner.with_cancellation_task(name, f),
+            ..self
+        }
+    }
+
     /// Merges an [`api::Service`] with the server
     pub fn merge_api(self, service: api::Service) -> Self {
         Self {
@@ -105,7 +142,12 @@ impl<'a> Server<'a> {
             .layer(self.extract_token)
             .layer(middleware::Log);
         let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, app).await?;
+
+        self.runner
+            .with_task("http server", axum::serve(listener, app))
+            .with_task("signal capture", signal::capture(self.signals))
+            .run()
+            .await;
 
         Ok(())
     }

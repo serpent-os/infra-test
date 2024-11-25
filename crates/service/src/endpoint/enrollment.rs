@@ -13,6 +13,8 @@ use crate::{
     Account, Client, Database, Endpoint, Role, State,
 };
 
+pub use service_core::endpoint::enrollment::Request;
+
 /// An issuer of enrollment requests
 #[derive(Debug, Clone)]
 pub struct Issuer {
@@ -30,7 +32,7 @@ pub struct Issuer {
     pub admin_email: String,
 }
 
-impl From<Issuer> for service_types::endpoint::enrollment::Issuer {
+impl From<Issuer> for service_core::endpoint::enrollment::Issuer {
     fn from(issuer: Issuer) -> Self {
         let Issuer {
             key_pair,
@@ -39,7 +41,7 @@ impl From<Issuer> for service_types::endpoint::enrollment::Issuer {
             ..
         } = issuer;
 
-        service_types::endpoint::enrollment::Issuer {
+        service_core::endpoint::enrollment::Issuer {
             public_key: key_pair.public_key().encode().to_string(),
             url: host_address.to_string(),
             role,
@@ -164,7 +166,7 @@ pub async fn send(target: Target, ourself: Issuer) -> Result<Sent, Error> {
 
     let resp = client
         .send::<api::v1::services::Enroll>(&api::v1::services::EnrollRequestBody {
-            request: service_types::endpoint::enrollment::Request {
+            request: Request {
                 issuer: ourself.into(),
                 issue_token: bearer_token.encoded.clone(),
                 role: target.role,
@@ -270,7 +272,7 @@ impl Received {
                 access_token: None,
             })
             .send::<api::v1::services::Accept>(&api::v1::services::AcceptRequestBody {
-                request: service_types::endpoint::enrollment::Request {
+                request: Request {
                     issuer: ourself.into(),
                     issue_token: bearer_token.encoded,
                     role: self.remote.role,

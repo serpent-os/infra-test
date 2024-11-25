@@ -1,8 +1,7 @@
 use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
-use futures::{select, FutureExt};
-use service::{signal, Role, Server, State};
+use service::{Role, Server, State};
 use tracing::info;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
@@ -25,18 +24,7 @@ async fn main() -> Result<()> {
 
     info!("summit listening on {host}:{port}");
 
-    let mut grpc = Server::new(Role::Hub, &config, &state)
-        .start((host, port))
-        .boxed()
-        .fuse();
-    let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])
-        .boxed()
-        .fuse();
-
-    select! {
-        res = grpc => res?,
-        res = stop => res?,
-    }
+    Server::new(Role::Hub, &config, &state).start((host, port)).await?;
 
     Ok(())
 }

@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use service_core::operation;
 
-use crate::Remote;
+use crate::{operation, Remote};
 
 operation!(Build, POST, "avalanche/build", ACCESS_TOKEN | SERVICE_ACCOUNT | NOT_EXPIRED, req: BuildRequestBody);
 

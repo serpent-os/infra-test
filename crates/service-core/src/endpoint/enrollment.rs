@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
-use service_core::Role;
 
-/// Core tenant in the Enrollment API
+use crate::Role;
+
+/// An endpoint enrollment request
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {

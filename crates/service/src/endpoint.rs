@@ -16,10 +16,7 @@ use crate::{
     Database, Role, Token,
 };
 
-pub(crate) use self::service::service;
-
 pub mod enrollment;
-pub(crate) mod service;
 
 /// Unique identifier of an [`Endpoint`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From)]

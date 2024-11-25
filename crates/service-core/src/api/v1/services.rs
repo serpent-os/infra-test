@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use service_core::operation;
 
 use crate::endpoint::enrollment;
+use crate::operation;
 
 operation!(
     Enroll,

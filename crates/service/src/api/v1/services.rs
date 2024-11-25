@@ -6,6 +6,8 @@ use http::Uri;
 use thiserror::Error;
 use tracing::{debug, error, info};
 
+pub use service_core::api::v1::services::*;
+
 use crate::{
     account, api,
     crypto::{EncodedPublicKey, PublicKey},
@@ -18,14 +20,17 @@ use crate::{
     token, Config, Database, Role, Token,
 };
 
-/// An implementation of the endpoint service operations
-pub fn service(role: Role, config: &Config, state: &crate::State) -> api::Service {
+/// An implementation of the shared service operations
+//
+// Provided by shared [`Server`](crate::Server)
+// so doesn't need to be public
+pub(crate) fn services(role: Role, config: &Config, state: &crate::State) -> api::Service {
     api::Service::new()
-        .register::<api::v1::services::Enroll, Error, _>(enroll)
-        .register::<api::v1::services::Accept, Error, _>(accept)
-        .register::<api::v1::services::Decline, Error, _>(decline)
-        .register::<api::v1::services::RefreshToken, Error, _>(refresh_token)
-        .register::<api::v1::services::RefreshIssueToken, Error, _>(refresh_issue_token)
+        .register::<Enroll, Error, _>(enroll)
+        .register::<Accept, Error, _>(accept)
+        .register::<Decline, Error, _>(decline)
+        .register::<RefreshToken, Error, _>(refresh_token)
+        .register::<RefreshIssueToken, Error, _>(refresh_issue_token)
         .with_state(State {
             issuer: config.issuer(role, state.key_pair.clone()),
             db: state.db.clone(),
@@ -36,7 +41,7 @@ pub fn service(role: Role, config: &Config, state: &crate::State) -> api::Servic
 
 /// State for endpoint handlers
 #[derive(Debug, Clone)]
-pub struct State {
+struct State {
     /// Issuer details of this service
     issuer: Issuer,
     /// Shared database of this service
@@ -57,7 +62,7 @@ impl State {
     }
 }
 
-async fn enroll(request: api::Request<api::v1::services::Enroll>, state: State) -> Result<(), Error> {
+async fn enroll(request: api::Request<Enroll>, state: State) -> Result<(), Error> {
     let upstream = *state.upstream.as_ref().ok_or(Error::UpstreamNotSet)?;
 
     let request = request.body.request;
@@ -124,7 +129,7 @@ async fn enroll(request: api::Request<api::v1::services::Enroll>, state: State) 
     Ok(())
 }
 
-async fn accept(request: api::Request<api::v1::services::Accept>, state: State) -> Result<(), Error> {
+async fn accept(request: api::Request<Accept>, state: State) -> Result<(), Error> {
     let token = request.token.clone().ok_or(Error::MissingRequestToken)?;
 
     let request = request.body.request;
@@ -178,7 +183,7 @@ async fn accept(request: api::Request<api::v1::services::Accept>, state: State) 
     Ok(())
 }
 
-async fn decline(request: api::Request<api::v1::services::Decline>, state: State) -> Result<(), Error> {
+async fn decline(request: api::Request<Decline>, state: State) -> Result<(), Error> {
     let token = request.token.clone().ok_or(Error::MissingRequestToken)?;
 
     let endpoint = token
@@ -202,7 +207,7 @@ async fn decline(request: api::Request<api::v1::services::Decline>, state: State
 }
 
 // Middleware already validates this token is valid for this endpoint
-async fn refresh_token(request: api::Request<api::v1::services::RefreshToken>, state: State) -> Result<String, Error> {
+async fn refresh_token(request: api::Request<RefreshToken>, state: State) -> Result<String, Error> {
     request
         .token
         .ok_or(Error::MissingRequestToken)?
@@ -216,10 +221,7 @@ async fn refresh_token(request: api::Request<api::v1::services::RefreshToken>, s
 }
 
 // Middleware already validates this token is valid for this endpoint
-async fn refresh_issue_token(
-    request: api::Request<api::v1::services::RefreshIssueToken>,
-    state: State,
-) -> Result<String, Error> {
+async fn refresh_issue_token(request: api::Request<RefreshIssueToken>, state: State) -> Result<String, Error> {
     request
         .token
         .ok_or(Error::MissingRequestToken)?

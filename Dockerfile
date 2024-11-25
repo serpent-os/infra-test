@@ -28,7 +28,8 @@ COPY --from=rust-builder /summit .
 VOLUME /app/state
 VOLUME /app/config.toml
 EXPOSE 5000
-CMD ["/app/summit", "0.0.0.0", "--port", "5000", "--root", "/app"]
+ENTRYPOINT ["/app/summit"]
+CMD ["0.0.0.0", "--port", "5000", "--root", "/app"]
 
 FROM alpine:3.20 AS vessel
 WORKDIR /app
@@ -37,7 +38,8 @@ VOLUME /app/state
 VOLUME /app/config.toml
 VOLUME /import
 EXPOSE 5001
-CMD ["/app/vessel", "0.0.0.0", "--port", "5001", "--root", "/app", "--import", "/import"]
+ENTRYPOINT ["/app/vessel"]
+CMD ["0.0.0.0", "--port", "5001", "--root", "/app", "--import", "/import"]
 
 FROM alpine:3.20 AS avalanche
 WORKDIR /app
@@ -48,4 +50,5 @@ COPY --from=rust-builder /tools/boulder/data/macros /usr/share/boulder/macros
 VOLUME /app/state
 VOLUME /app/config.toml
 EXPOSE 5002
-CMD ["/app/avalanche", "0.0.0.0", "--port", "5002", "--root", "/app"]
+ENTRYPOINT ["/app/avalanche"]
+CMD ["0.0.0.0", "--port", "5002", "--root", "/app"]

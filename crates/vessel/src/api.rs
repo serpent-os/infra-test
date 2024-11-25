@@ -1,5 +1,4 @@
-use service::{api, database, endpoint, Database, Endpoint};
-use service_types::collectable;
+use service::{api, collectable, database, endpoint, Database, Endpoint};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{info, warn};

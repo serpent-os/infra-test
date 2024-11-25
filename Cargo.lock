@@ -342,7 +342,6 @@ dependencies = [
  "http",
  "itertools 0.12.1",
  "service",
- "service-types",
  "sha2",
  "thiserror 1.0.69",
  "tokio",
@@ -3202,13 +3201,13 @@ dependencies = [
  "serde",
  "serde_json",
  "service-core",
- "service-types",
  "sha2",
  "sqlx",
  "strum 0.25.0",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "toml",
  "tower 0.4.13",
  "tower-http",
@@ -3228,15 +3227,6 @@ dependencies = [
  "serde",
  "strum 0.25.0",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "service-types"
-version = "0.1.0"
-dependencies = [
- "http",
- "serde",
- "service-core",
 ]
 
 [[package]]
@@ -4394,7 +4384,6 @@ dependencies = [
  "moss",
  "serde",
  "service",
- "service-types",
  "sha2",
  "sqlx",
  "stone",

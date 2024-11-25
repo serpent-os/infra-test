@@ -5,7 +5,6 @@ edition.workspace = true
 
 [dependencies]
 service = { path = "../service" }
-service-types = { path = "../service-types" }
 
 clap.workspace = true
 color-eyre.workspace = true

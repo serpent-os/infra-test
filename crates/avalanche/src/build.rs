@@ -7,7 +7,7 @@ use service::{
     api::{self, v1::avalanche::PackageBuild},
     error, Endpoint, State,
 };
-use service_types::{collectable, Collectable, Remote};
+use service::{collectable, Collectable, Remote};
 use sha2::{Digest, Sha256};
 use tokio::{
     fs::{self, File},

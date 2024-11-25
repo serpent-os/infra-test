@@ -1,8 +1,7 @@
 use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
-use futures::{select, FutureExt};
-use service::{signal, Role, Server, State};
+use service::{Role, Server, State};
 use tracing::info;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
@@ -28,29 +27,19 @@ async fn main() -> Result<()> {
 
     let state = State::load(root).await?;
 
-    info!("vessel listening on {host}:{port}");
-
     let (worker_sender, worker_task) = worker::run(&state).await?;
 
     if let Some(directory) = import {
         let _ = worker_sender.send(worker::Message::ImportDirectory(directory));
     }
 
-    let mut http = Server::new(Role::RepositoryManager, &config, &state)
+    info!("vessel listening on {host}:{port}");
+
+    Server::new(Role::RepositoryManager, &config, &state)
         .merge_api(api::service(state.db.clone(), worker_sender))
+        .with_task("worker", worker_task)
         .start((host, port))
-        .boxed()
-        .fuse();
-
-    let mut stop = signal::capture([signal::Kind::terminate(), signal::Kind::interrupt()])
-        .boxed()
-        .fuse();
-
-    select! {
-        res = worker_task.fuse() => res?,
-        res = http => res?,
-        res = stop => res?,
-    }
+        .await?;
 
     Ok(())
 }
