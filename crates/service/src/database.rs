@@ -26,7 +26,10 @@ impl Database {
         )
         .await?;
 
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        sqlx::migrate!("./migrations")
+            .set_ignore_missing(true)
+            .run(&pool)
+            .await?;
 
         Ok(Self { pool })
     }
