@@ -300,7 +300,7 @@ pub struct EndpointAuth {
 
 impl EndpointAuth {
     async fn verified_tokens(&self, public_key: &PublicKey) -> Result<Tokens, EndpointAuthError> {
-        let tokens = endpoint::Tokens::get(&self.db, self.endpoint).await?;
+        let tokens = endpoint::Tokens::get(self.db.acquire().await?.as_mut(), self.endpoint).await?;
 
         Ok(Tokens {
             bearer_token: tokens
@@ -323,8 +323,10 @@ impl AuthStorage for EndpointAuth {
     const REFRESH_ENABLED: bool = true;
 
     async fn tokens(&self) -> Result<Tokens, EndpointAuthError> {
-        let endpoint = Endpoint::get(&self.db, self.endpoint).await?;
-        let account = Account::get(&self.db, endpoint.account).await?;
+        let mut conn = self.db.acquire().await?;
+
+        let endpoint = Endpoint::get(conn.as_mut(), self.endpoint).await?;
+        let account = Account::get(conn.as_mut(), endpoint.account).await?;
 
         let public_key = account.public_key.decoded()?;
 
@@ -339,8 +341,10 @@ impl AuthStorage for EndpointAuth {
         )
     )]
     async fn token_refreshed(&self, purpose: token::Purpose, token: &str) -> Result<Tokens, Self::Error> {
-        let mut endpoint = Endpoint::get(&self.db, self.endpoint).await?;
-        let account = Account::get(&self.db, endpoint.account).await?;
+        let mut tx = self.db.begin().await?;
+
+        let mut endpoint = Endpoint::get(tx.as_mut(), self.endpoint).await?;
+        let account = Account::get(tx.as_mut(), endpoint.account).await?;
 
         let public_key = account.public_key.decoded()?;
 
@@ -360,9 +364,11 @@ impl AuthStorage for EndpointAuth {
                     bearer_token: tokens.bearer_token.as_ref().map(|token| token.encoded.clone()),
                     access_token: tokens.access_token.as_ref().map(|token| token.encoded.clone()),
                 }
-                .save(&self.db, self.endpoint)
+                .save(&mut tx, self.endpoint)
                 .await?;
-                endpoint.save(&self.db).await?;
+                endpoint.save(&mut tx).await?;
+
+                tx.commit().await?;
 
                 info!("Token refreshed, endpoint operational");
 
@@ -374,7 +380,9 @@ impl AuthStorage for EndpointAuth {
 
                 error!("Invalid signature");
 
-                endpoint.save(&self.db).await?;
+                endpoint.save(&mut tx).await?;
+
+                tx.commit().await?;
 
                 Err(EndpointAuthError::InvalidRefreshToken)
             }
@@ -384,7 +392,9 @@ impl AuthStorage for EndpointAuth {
 
                 error!("Invalid token");
 
-                endpoint.save(&self.db).await?;
+                endpoint.save(&mut tx).await?;
+
+                tx.commit().await?;
 
                 Err(EndpointAuthError::InvalidRefreshToken)
             }
@@ -399,7 +409,9 @@ impl AuthStorage for EndpointAuth {
         )
     )]
     async fn token_refresh_failed(&self, purpose: token::Purpose, error: &reqwest::Error) -> Result<(), Self::Error> {
-        let mut endpoint = Endpoint::get(&self.db, self.endpoint).await?;
+        let mut tx = self.db.begin().await?;
+
+        let mut endpoint = Endpoint::get(tx.as_mut(), self.endpoint).await?;
 
         endpoint.status = endpoint::Status::Unreachable;
 
@@ -414,7 +426,9 @@ impl AuthStorage for EndpointAuth {
             }
         }
 
-        endpoint.save(&self.db).await?;
+        endpoint.save(&mut tx).await?;
+
+        tx.commit().await?;
 
         Ok(())
     }

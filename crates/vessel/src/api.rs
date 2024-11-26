@@ -33,7 +33,7 @@ async fn import_packages(request: api::Request<api::v1::vessel::Build>, state: S
         .sub
         .parse::<endpoint::Id>()
         .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(&state.db, endpoint_id)
+    let endpoint = Endpoint::get(state.db.acquire().await?.as_mut(), endpoint_id)
         .await
         .map_err(Error::LoadEndpoint)?;
 
@@ -90,6 +90,9 @@ pub enum Error {
     /// Failed to send task to worker
     #[error("send task to worker")]
     SendWorker(#[source] mpsc::error::SendError<worker::Message>),
+    /// Database error
+    #[error("database")]
+    Database(#[from] database::Error),
 }
 
 impl From<&Error> for http::StatusCode {
@@ -97,7 +100,9 @@ impl From<&Error> for http::StatusCode {
         match error {
             Error::MissingRequestToken => http::StatusCode::UNAUTHORIZED,
             Error::InvalidEndpoint(_) | Error::InvalidUrl(_) => http::StatusCode::BAD_REQUEST,
-            Error::LoadEndpoint(_) | Error::SendWorker(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Error::LoadEndpoint(_) | Error::SendWorker(_) | Error::Database(_) => {
+                http::StatusCode::INTERNAL_SERVER_ERROR
+            }
         }
     }
 }

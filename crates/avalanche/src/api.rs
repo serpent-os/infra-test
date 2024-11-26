@@ -35,7 +35,7 @@ async fn build(request: api::Request<api::v1::avalanche::Build>, context: Contex
         .sub
         .parse::<endpoint::Id>()
         .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(&context.state.db, endpoint_id)
+    let endpoint = Endpoint::get(context.state.db.acquire().await?.as_mut(), endpoint_id)
         .await
         .map_err(Error::LoadEndpoint)?;
 
@@ -84,6 +84,9 @@ pub enum Error {
     /// Failed to load endpoint from DB
     #[error("load endpoint")]
     LoadEndpoint(#[source] database::Error),
+    /// Database error
+    #[error("database")]
+    Database(#[from] database::Error),
 }
 
 impl From<&Error> for http::StatusCode {
@@ -91,7 +94,7 @@ impl From<&Error> for http::StatusCode {
         match error {
             Error::MissingRequestToken => http::StatusCode::UNAUTHORIZED,
             Error::MissingRemotes | Error::InvalidEndpoint(_) => http::StatusCode::BAD_REQUEST,
-            Error::LoadEndpoint(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Error::LoadEndpoint(_) | Error::Database(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::BuildInProgress => http::StatusCode::SERVICE_UNAVAILABLE,
         }
     }

@@ -59,7 +59,10 @@ impl Account {
     }
 
     /// Get the account for [`Id`] from the provided [`Database`]
-    pub async fn get(db: &Database, id: Id) -> Result<Self, Error> {
+    pub async fn get<'a, T>(conn: &'a mut T, id: Id) -> Result<Self, Error>
+    where
+        &'a mut T: database::Executor<'a>,
+    {
         let account: Account = sqlx::query_as(
             "
             SELECT
@@ -74,18 +77,21 @@ impl Account {
             ",
         )
         .bind(id.0)
-        .fetch_one(&db.pool)
+        .fetch_one(conn)
         .await?;
 
         Ok(account)
     }
 
     /// Lookup an account using `username` and `publickey` from the provided [`Database`]
-    pub async fn lookup_with_credentials(
-        db: &Database,
+    pub async fn lookup_with_credentials<'a, T>(
+        conn: &'a mut T,
         username: &str,
         public_key: &EncodedPublicKey,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error>
+    where
+        &'a mut T: database::Executor<'a>,
+    {
         let account: Account = sqlx::query_as(
             "
             SELECT
@@ -104,14 +110,14 @@ impl Account {
         )
         .bind(username)
         .bind(public_key.to_string())
-        .fetch_one(&db.pool)
+        .fetch_one(conn)
         .await?;
 
         Ok(account)
     }
 
     /// Create / update this account to the provided [`Database`]
-    pub async fn save<'c>(&self, conn: impl sqlx::Executor<'c, Database = sqlx::Sqlite>) -> Result<(), Error> {
+    pub async fn save<'a>(&self, tx: &mut database::Transaction<'a>) -> Result<(), Error> {
         sqlx::query(
             "
             INSERT INTO account
@@ -138,7 +144,7 @@ impl Account {
         .bind(&self.email)
         .bind(&self.name)
         .bind(self.public_key.to_string())
-        .execute(conn)
+        .execute(tx.as_mut())
         .await?;
 
         Ok(())
@@ -197,7 +203,12 @@ pub struct Token {
 
 impl Token {
     /// Set the account's bearer token & expiration
-    pub async fn set(db: &Database, id: Id, encoded: impl ToString, expiration: DateTime<Utc>) -> Result<(), Error> {
+    pub async fn set<'a>(
+        tx: &mut database::Transaction<'a>,
+        id: Id,
+        encoded: impl ToString,
+        expiration: DateTime<Utc>,
+    ) -> Result<(), Error> {
         sqlx::query(
             "
             INSERT INTO account_token
@@ -215,14 +226,17 @@ impl Token {
         .bind(id.0)
         .bind(encoded.to_string())
         .bind(expiration)
-        .execute(&db.pool)
+        .execute(tx.as_mut())
         .await?;
 
         Ok(())
     }
 
     /// Get the account token for [`Id`] from the provided [`Database`]
-    pub async fn get(db: &Database, id: Id) -> Result<Token, Error> {
+    pub async fn get<'a, T>(conn: &'a mut T, id: Id) -> Result<Token, Error>
+    where
+        &'a mut T: database::Executor<'a>,
+    {
         let token: Token = sqlx::query_as(
             "
             SELECT
@@ -233,7 +247,7 @@ impl Token {
             ",
         )
         .bind(id.0)
-        .fetch_one(&db.pool)
+        .fetch_one(conn)
         .await?;
 
         Ok(token)
@@ -262,6 +276,8 @@ pub struct Admin {
     )
 )]
 pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error> {
+    let mut tx = db.begin().await?;
+
     let account: Option<Id> = sqlx::query_as(
         "
         SELECT 
@@ -279,14 +295,12 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
     .bind(&admin.name)
     .bind(&admin.email)
     .bind(admin.public_key.to_string())
-    .fetch_optional(&db.pool)
+    .fetch_optional(tx.as_mut())
     .await?;
 
     if account.is_some() {
         return Ok(());
     }
-
-    let mut transaction = db.transaction().await?;
 
     sqlx::query(
         "
@@ -294,7 +308,7 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
         WHERE type = 'admin';
         ",
     )
-    .execute(transaction.as_mut())
+    .execute(tx.as_mut())
     .await?;
 
     Account {
@@ -305,10 +319,10 @@ pub(crate) async fn sync_admin(db: &Database, admin: Admin) -> Result<(), Error>
         email: Some(admin.email.clone()),
         public_key: admin.public_key.clone(),
     }
-    .save(transaction.as_mut())
+    .save(&mut tx)
     .await?;
 
-    transaction.commit().await?;
+    tx.commit().await?;
 
     debug!("Admin account synced");
 
@@ -325,6 +339,6 @@ pub enum Error {
 
 impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
-        Error::Database(database::Error::from(error))
+        Error::Database(database::Error::Execute(error))
     }
 }

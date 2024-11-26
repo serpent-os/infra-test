@@ -100,7 +100,9 @@ pub struct Target {
 
 /// Send auto-enrollment to the list of targets if the endpoint isn't already configured
 pub(crate) async fn auto_enrollment(targets: &[Target], ourself: Issuer, state: &State) -> Result<(), Error> {
-    let endpoints = Endpoint::list(&state.db).await.map_err(Error::ListEndpoints)?;
+    let mut conn = state.db.acquire().await?;
+
+    let endpoints = Endpoint::list(conn.as_mut()).await.map_err(Error::ListEndpoints)?;
 
     for target in targets {
         let mut enrolled = false;
@@ -114,7 +116,7 @@ pub(crate) async fn auto_enrollment(targets: &[Target], ourself: Issuer, state: 
         let _guard = span.enter();
 
         if let Some(endpoint) = endpoints.iter().find(|e| e.host_address == target.host_address) {
-            let account = Account::get(&state.db, endpoint.account)
+            let account = Account::get(conn.as_mut(), endpoint.account)
                 .await
                 .map_err(Error::ReadAccount)?;
 
@@ -213,8 +215,10 @@ impl Received {
         let account_id = self.account;
         let username = format!("@{account_id}");
 
+        let mut tx = db.begin().await?;
+
         Account::service(account_id, self.remote.public_key.encode())
-            .save(&db.pool)
+            .save(&mut tx)
             .await
             .map_err(Error::CreateServiceAccount)?;
 
@@ -237,13 +241,13 @@ impl Received {
             account: account_id,
             kind,
         };
-        endpoint.save(db).await.map_err(Error::CreateEndpoint)?;
+        endpoint.save(&mut tx).await.map_err(Error::CreateEndpoint)?;
 
         endpoint::Tokens {
             bearer_token: Some(self.remote.bearer_token.encoded.clone()),
             access_token: None,
         }
-        .save(db, endpoint.id)
+        .save(&mut tx, endpoint.id)
         .await
         .map_err(Error::SetEndpointAccountToken)?;
 
@@ -257,7 +261,7 @@ impl Received {
             &ourself,
         )?;
 
-        account::Token::set(db, account_id, &bearer_token.encoded, bearer_token.expires())
+        account::Token::set(&mut tx, account_id, &bearer_token.encoded, bearer_token.expires())
             .await
             .map_err(Error::SetAccountToken)?;
 
@@ -283,7 +287,9 @@ impl Received {
         match resp {
             Ok(_) => {
                 endpoint.status = endpoint::Status::Operational;
-                endpoint.save(db).await.map_err(Error::UpdateEndpointStatus)?;
+                endpoint.save(&mut tx).await.map_err(Error::UpdateEndpointStatus)?;
+
+                tx.commit().await?;
 
                 info!("Accepted endpoint now operational");
 
@@ -292,7 +298,9 @@ impl Received {
             Err(error) => {
                 endpoint.status = endpoint::Status::Failed;
                 endpoint.error = Some(error.to_string());
-                endpoint.save(db).await.map_err(Error::UpdateEndpointStatus)?;
+                endpoint.save(&mut tx).await.map_err(Error::UpdateEndpointStatus)?;
+
+                tx.commit().await?;
 
                 Err(Error::Client(error))
             }
@@ -337,6 +345,8 @@ impl Sent {
         let account = self.account;
         let username = format!("@{account}");
 
+        let mut tx = db.begin().await?;
+
         Account {
             id: account,
             kind: account::Kind::Service,
@@ -345,7 +355,7 @@ impl Sent {
             name: None,
             public_key: self.target.public_key.encode(),
         }
-        .save(&db.pool)
+        .save(&mut tx)
         .await
         .map_err(Error::CreateServiceAccount)?;
 
@@ -361,7 +371,7 @@ impl Sent {
             account,
             kind: endpoint::Kind::Hub,
         }
-        .save(db)
+        .save(&mut tx)
         .await
         .map_err(Error::CreateEndpoint)?;
 
@@ -369,14 +379,14 @@ impl Sent {
             bearer_token: Some(remote.bearer_token.encoded),
             access_token: None,
         }
-        .save(db, endpoint)
+        .save(&mut tx, endpoint)
         .await
         .map_err(Error::SetEndpointAccountToken)?;
 
         info!("Created a new endpoint for the service account");
 
         account::Token::set(
-            db,
+            &mut tx,
             self.account,
             &self.bearer_token.encoded,
             self.bearer_token.expires(),
@@ -388,6 +398,8 @@ impl Sent {
             expiration = %self.bearer_token.expires(),
             "Bearer token saved",
         );
+
+        tx.commit().await?;
 
         info!("Accepted endpoint now operational");
 
@@ -433,4 +445,7 @@ pub enum Error {
     /// Client error
     #[error("client")]
     Client(#[from] client::Error),
+    /// Database error
+    #[error("database")]
+    Database(#[from] database::Error),
 }

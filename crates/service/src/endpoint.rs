@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::{
     account, database,
     token::{self, VerifiedToken},
-    Database, Role, Token,
+    Role, Token,
 };
 
 pub mod enrollment;
@@ -85,7 +85,10 @@ pub struct Endpoint {
 
 impl Endpoint {
     /// Get an endpoint with the provided [`Id`]
-    pub async fn get(db: &Database, id: Id) -> Result<Self, database::Error> {
+    pub async fn get<'a, T>(conn: &'a mut T, id: Id) -> Result<Self, database::Error>
+    where
+        &'a mut T: database::Executor<'a>,
+    {
         let endpoint: Endpoint = sqlx::query_as(
             "
             SELECT
@@ -101,14 +104,15 @@ impl Endpoint {
             ",
         )
         .bind(id.0)
-        .fetch_one(&db.pool)
-        .await?;
+        .fetch_one(conn)
+        .await
+        .map_err(database::Error::Execute)?;
 
         Ok(endpoint)
     }
 
     /// Create or update this endpoint to the provided [`Database`]
-    pub async fn save(&self, db: &Database) -> Result<(), database::Error> {
+    pub async fn save<'a>(&self, tx: &mut database::Transaction<'a>) -> Result<(), database::Error> {
         sqlx::query(
             "
             INSERT INTO endpoint
@@ -138,14 +142,18 @@ impl Endpoint {
         .bind(i64::from(self.account))
         .bind(self.kind.role().to_string())
         .bind(self.kind.work_status().map(ToString::to_string))
-        .execute(&db.pool)
-        .await?;
+        .execute(tx.as_mut())
+        .await
+        .map_err(database::Error::Execute)?;
 
         Ok(())
     }
 
     /// List all endpoints from the provided [`Database`]
-    pub async fn list(db: &Database) -> Result<Vec<Endpoint>, database::Error> {
+    pub async fn list<'a, T>(conn: &'a mut T) -> Result<Vec<Endpoint>, database::Error>
+    where
+        &'a mut T: database::Executor<'a>,
+    {
         let endpoints: Vec<Endpoint> = sqlx::query_as(
             "
             SELECT
@@ -159,14 +167,15 @@ impl Endpoint {
             FROM endpoint;
             ",
         )
-        .fetch_all(&db.pool)
-        .await?;
+        .fetch_all(conn)
+        .await
+        .map_err(database::Error::Execute)?;
 
         Ok(endpoints)
     }
 
     /// Delete this endpoint from the provided [`Database`]
-    pub async fn delete(&self, db: &Database) -> Result<(), database::Error> {
+    pub async fn delete<'a>(&self, tx: &mut database::Transaction<'a>) -> Result<(), database::Error> {
         sqlx::query(
             "
             DELETE FROM endpoint
@@ -174,8 +183,9 @@ impl Endpoint {
             ",
         )
         .bind(self.id.0)
-        .execute(&db.pool)
-        .await?;
+        .execute(tx.as_mut())
+        .await
+        .map_err(database::Error::Execute)?;
 
         Ok(())
     }
@@ -201,7 +211,7 @@ pub struct Tokens {
 
 impl Tokens {
     /// Save the tokens related to [`Id`] to the provided [`Database`]
-    pub async fn save(&self, db: &Database, id: Id) -> Result<(), database::Error> {
+    pub async fn save<'a>(&self, tx: &mut database::Transaction<'a>, id: Id) -> Result<(), database::Error> {
         sqlx::query(
             "
             UPDATE endpoint
@@ -214,14 +224,18 @@ impl Tokens {
         .bind(&self.bearer_token)
         .bind(&self.access_token)
         .bind(id.0)
-        .execute(&db.pool)
-        .await?;
+        .execute(tx.as_mut())
+        .await
+        .map_err(database::Error::Execute)?;
 
         Ok(())
     }
 
     /// Get the tokens for [`Id`] from the provided [`Database`]
-    pub async fn get(db: &Database, id: Id) -> Result<Self, database::Error> {
+    pub async fn get<'a, T>(conn: &'a mut T, id: Id) -> Result<Self, database::Error>
+    where
+        &'a mut T: database::Executor<'a>,
+    {
         let tokens: Tokens = sqlx::query_as(
             "
             SELECT
@@ -232,8 +246,9 @@ impl Tokens {
             ",
         )
         .bind(id.0)
-        .fetch_one(&db.pool)
-        .await?;
+        .fetch_one(conn)
+        .await
+        .map_err(database::Error::Execute)?;
 
         Ok(tokens)
     }
