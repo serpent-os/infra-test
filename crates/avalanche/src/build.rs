@@ -27,7 +27,8 @@ use crate::Config;
 pub async fn build(request: PackageBuild, endpoint: Endpoint, state: State, config: Config) {
     info!("Starting build");
 
-    let client = service::Client::new(endpoint.host_address.clone()).with_endpoint_auth(endpoint.id, state.db.clone());
+    let client =
+        service::Client::new(endpoint.host_address.clone()).with_endpoint_auth(endpoint.id, state.service_db.clone());
 
     let task_id = request.build_id;
 

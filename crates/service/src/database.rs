@@ -1,9 +1,11 @@
-//! Shared service database
+//! Service database
 
 use std::path::Path;
 
-use sqlx::{pool::PoolConnection, sqlite::SqliteConnectOptions, Pool, Sqlite, SqliteConnection};
+use sqlx::{pool::PoolConnection, Pool, Sqlite, SqliteConnection};
 use thiserror::Error;
+
+pub use sqlx::migrate::Migrator;
 
 /// Service database
 #[derive(Debug, Clone)]
@@ -15,48 +17,48 @@ pub struct Database {
 impl Database {
     /// Opens a connection to the provided database path
     pub async fn new(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let options = sqlx::sqlite::SqliteConnectOptions::new()
-            .filename(path)
-            .create_if_missing(true)
-            .read_only(false)
-            .foreign_keys(true);
+        let pool = sqlx::SqlitePool::connect_with(
+            sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path)
+                .create_if_missing(true)
+                .read_only(false)
+                .foreign_keys(true),
+        )
+        .await?;
 
-        Self::connect(options).await
-    }
-
-    async fn connect(options: SqliteConnectOptions) -> Result<Self, Error> {
-        let pool = sqlx::SqlitePool::connect_with(options).await.map_err(Error::Connect)?;
-
-        sqlx::migrate!("src/database/migrations")
-            .run(&pool)
-            .await
-            .map_err(Error::Migrate)?;
+        sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(Self { pool })
     }
 
+    /// Runs the provided migrations on the database
+    pub async fn with_migrations(self, mut migrator: Migrator) -> Result<Self, Error> {
+        migrator.set_ignore_missing(true).run(&self.pool).await?;
+        Ok(self)
+    }
+
     /// Acquire a database connection
     pub async fn acquire(&self) -> Result<PoolConnection<Sqlite>, Error> {
-        self.pool.acquire().await.map_err(Error::Acquire)
+        Ok(self.pool.acquire().await?)
     }
 
     /// Begin a database transaction
     pub async fn begin(&self) -> Result<Transaction, Error> {
-        Ok(Transaction(self.pool.begin().await.map_err(Error::Commit)?))
+        Ok(Transaction(self.pool.begin().await?))
     }
 }
 
 /// A database transaction
-pub struct Transaction<'a>(sqlx::Transaction<'a, Sqlite>);
+pub struct Transaction(sqlx::Transaction<'static, Sqlite>);
 
-impl<'a> Transaction<'a> {
+impl Transaction {
     /// Commit the transaction
     pub async fn commit(self) -> Result<(), Error> {
-        self.0.commit().await.map_err(Error::Commit)
+        Ok(self.0.commit().await?)
     }
 }
 
-impl<'a> AsMut<SqliteConnection> for Transaction<'a> {
+impl AsMut<SqliteConnection> for Transaction {
     fn as_mut(&mut self) -> &mut SqliteConnection {
         self.0.as_mut()
     }
@@ -70,22 +72,10 @@ impl<'a, T> Executor<'a> for &'a mut T where &'a mut T: sqlx::Executor<'a, Datab
 /// A database error
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Failed to connect
-    #[error("failed to connect")]
-    Connect(#[source] sqlx::Error),
-    /// Migrations failed
-    #[error("migrations failed")]
-    Migrate(#[source] sqlx::migrate::MigrateError),
-    /// Acquire connection
-    #[error("acquire connection")]
-    Acquire(#[source] sqlx::Error),
-    /// Begin transaction
-    #[error("begin transaction")]
-    Begin(#[source] sqlx::Error),
-    /// Commit transaction
-    #[error("commit transaction")]
-    Commit(#[source] sqlx::Error),
-    /// Execute query
-    #[error("execute query")]
-    Execute(#[source] sqlx::Error),
+    /// Sqlx error
+    #[error("sqlx")]
+    Sqlx(#[from] sqlx::Error),
+    /// Migration error
+    #[error("sqlx migrate")]
+    Migrate(#[from] sqlx::migrate::MigrateError),
 }

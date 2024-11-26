@@ -28,9 +28,4 @@ where
     pub async fn remove(&self, key: &K) -> Option<V> {
         self.0.lock().await.remove(key)
     }
-
-    /// Clones out and returns the inner map
-    pub async fn all(&self) -> HashMap<K, V> {
-        self.0.lock().await.clone()
-    }
 }

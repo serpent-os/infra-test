@@ -9,7 +9,7 @@ use std::{
 use color_eyre::eyre::{self, eyre, Context, Result};
 use futures::{stream, StreamExt, TryStreamExt};
 use moss::db::meta;
-use service::{api, request, Endpoint};
+use service::{api, database, request, Endpoint};
 use sha2::{Digest, Sha256};
 use tokio::{fs, sync::mpsc, time::Instant};
 use tracing::{error, info, info_span, Instrument};
@@ -64,22 +64,17 @@ struct State {
     state_dir: PathBuf,
     service_db: service::Database,
     meta_db: meta::Database,
-    collection_db: collection::Database,
 }
 
 impl State {
     async fn new(service_state: &service::State) -> Result<Self> {
         let meta_db = meta::Database::new(service_state.db_dir.join("meta").to_string_lossy().as_ref())
             .context("failed to open meta database")?;
-        let collection_db = collection::Database::new(service_state.db_dir.join("collection"))
-            .await
-            .context("failed to open collection database")?;
 
         Ok(Self {
             state_dir: service_state.state_dir.clone(),
-            service_db: service_state.db.clone(),
+            service_db: service_state.service_db.clone(),
             meta_db,
-            collection_db,
         })
     }
 }
@@ -165,20 +160,20 @@ async fn import_packages(state: &State, packages: Vec<Package>) -> Result<()> {
         .context("download package")?;
 
     // Stone is read in blocking manner
-    let collection_tx = tokio::task::spawn_blocking({
+    let tx = tokio::task::spawn_blocking({
         let span = tracing::Span::current();
         let state = state.clone();
 
         // Rollback any collection DB inserts if we encounter any failures
-        let mut collection_tx = state.collection_db.begin().await.context("start collection db tx")?;
+        let mut tx = state.service_db.begin().await.context("start db tx")?;
 
         move || {
             span.in_scope(|| {
                 for (package, path) in downloads {
-                    import_package(&state, &mut collection_tx, &package, &path, true)?;
+                    import_package(&state, &mut tx, &package, &path, true)?;
                 }
 
-                Result::<_, eyre::Report>::Ok(collection_tx)
+                Result::<_, eyre::Report>::Ok(tx)
             })
         }
     })
@@ -187,7 +182,7 @@ async fn import_packages(state: &State, packages: Vec<Package>) -> Result<()> {
     .context("import package")?;
 
     // No failures, commit it all to collection DB
-    collection_tx.commit().await.context("commit collection db tx")?;
+    tx.commit().await.context("commit collection db tx")?;
 
     reindex(state).await.context("reindex")?;
 
@@ -196,7 +191,7 @@ async fn import_packages(state: &State, packages: Vec<Package>) -> Result<()> {
 
 fn import_package(
     state: &State,
-    collection_tx: &mut collection::Transaction,
+    tx: &mut database::Transaction,
     package: &Package,
     download_path: &Path,
     destructive_move: bool,
@@ -250,7 +245,7 @@ fn import_package(
     }
 
     let existing = tokio::runtime::Handle::current()
-        .block_on(state.collection_db.lookup(name.as_ref()))
+        .block_on(collection::lookup(tx.as_mut(), name.as_ref()))
         .context("lookup existing collection record")?;
 
     match existing {
@@ -283,7 +278,7 @@ fn import_package(
     // Will only be added once TX is committed / all packages
     // are succsefully handled
     tokio::runtime::Handle::current()
-        .block_on(collection::record(collection_tx, collection::Record::new(id, meta)))
+        .block_on(collection::record(tx, collection::Record::new(id, meta)))
         // English why you be like this
         .context("record collection record")?;
 
@@ -347,11 +342,16 @@ fn hardlink_or_copy(from: &Path, to: &Path) -> Result<()> {
 }
 
 async fn reindex(state: &State) -> Result<()> {
-    let mut records = state
-        .collection_db
-        .list()
-        .await
-        .context("list records from collection db")?;
+    let mut records = collection::list(
+        state
+            .service_db
+            .acquire()
+            .await
+            .context("acquire database connection")?
+            .as_mut(),
+    )
+    .await
+    .context("list records from collection db")?;
     records.sort_by(|a, b| a.source_id.cmp(&b.source_id).then_with(|| a.name.cmp(&b.name)));
 
     let now = Instant::now();

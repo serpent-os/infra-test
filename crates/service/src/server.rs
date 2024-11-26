@@ -123,7 +123,7 @@ impl<'a> Server<'a> {
     ///
     /// [`Database`]: crate::Database
     pub async fn start(self, addr: impl ToSocketAddrs) -> Result<(), Error> {
-        account::sync_admin(&self.state.db, self.config.admin.clone()).await?;
+        account::sync_admin(&self.state.service_db, self.config.admin.clone()).await?;
 
         if self.role == Role::Hub {
             if let Err(e) = enrollment::auto_enrollment(

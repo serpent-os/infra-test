@@ -33,7 +33,7 @@ pub(crate) fn services(role: Role, config: &Config, state: &crate::State) -> api
         .register::<RefreshIssueToken, Error, _>(refresh_issue_token)
         .with_state(State {
             issuer: config.issuer(role, state.key_pair.clone()),
-            db: state.db.clone(),
+            db: state.service_db.clone(),
             pending_sent: state.pending_sent.clone(),
             upstream: config.upstream,
         })

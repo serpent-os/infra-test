@@ -23,13 +23,13 @@ pub struct State {
     /// Database directory
     pub db_dir: PathBuf,
     /// Service database
-    pub db: Database,
+    pub service_db: Database,
     /// Key pair used by the service
     pub key_pair: KeyPair,
     /// Pending enrollment requests that are awaiting confirmation
     ///
     /// Only applicable for hub service
-    pub pending_sent: SharedMap<endpoint::Id, enrollment::Sent>,
+    pub(crate) pending_sent: SharedMap<endpoint::Id, enrollment::Sent>,
 }
 
 impl State {
@@ -45,12 +45,11 @@ impl State {
             fs::create_dir_all(&db_dir).await.map_err(Error::CreateDbDir)?;
         }
 
-        let db_path = db_dir.join("service.db");
+        let service_db_path = db_dir.join("service");
+        let service_db = Database::new(&service_db_path).await?;
+        debug!(path = ?service_db_path, "Database opened");
+
         let key_path = state_dir.join(".privkey");
-
-        let db = Database::new(&db_path).await?;
-        debug!(path = ?db_path, "Database opened");
-
         let key_pair = if !key_path.exists() {
             let key_pair = KeyPair::generate();
             debug!(key_pair = %key_pair.public_key(), "Keypair generated");
@@ -73,10 +72,16 @@ impl State {
             root,
             state_dir,
             db_dir,
-            db,
+            service_db,
             key_pair,
             pending_sent: Default::default(),
         })
+    }
+
+    /// Run the provided migrations against the service database
+    pub async fn with_migrations(mut self, migrator: database::Migrator) -> Result<Self, Error> {
+        self.service_db = self.service_db.with_migrations(migrator).await?;
+        Ok(self)
     }
 }
 

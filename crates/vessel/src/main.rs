@@ -25,7 +25,10 @@ async fn main() -> Result<()> {
 
     service::tracing::init(&config.tracing);
 
-    let state = State::load(root).await?;
+    let state = State::load(root)
+        .await?
+        .with_migrations(sqlx::migrate!("./migrations"))
+        .await?;
 
     let (worker_sender, worker_task) = worker::run(&state).await?;
 
@@ -36,7 +39,7 @@ async fn main() -> Result<()> {
     info!("vessel listening on {host}:{port}");
 
     Server::new(Role::RepositoryManager, &config, &state)
-        .merge_api(api::service(state.db.clone(), worker_sender))
+        .merge_api(api::service(state.service_db.clone(), worker_sender))
         .with_task("worker", worker_task)
         .start((host, port))
         .await?;

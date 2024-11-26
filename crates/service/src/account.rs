@@ -117,7 +117,7 @@ impl Account {
     }
 
     /// Create / update this account to the provided [`Database`]
-    pub async fn save<'a>(&self, tx: &mut database::Transaction<'a>) -> Result<(), Error> {
+    pub async fn save(&self, tx: &mut database::Transaction) -> Result<(), Error> {
         sqlx::query(
             "
             INSERT INTO account
@@ -203,8 +203,8 @@ pub struct Token {
 
 impl Token {
     /// Set the account's bearer token & expiration
-    pub async fn set<'a>(
-        tx: &mut database::Transaction<'a>,
+    pub async fn set(
+        tx: &mut database::Transaction,
         id: Id,
         encoded: impl ToString,
         expiration: DateTime<Utc>,
@@ -339,6 +339,6 @@ pub enum Error {
 
 impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
-        Error::Database(database::Error::Execute(error))
+        Error::Database(error.into())
     }
 }

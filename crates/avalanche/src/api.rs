@@ -35,7 +35,7 @@ async fn build(request: api::Request<api::v1::avalanche::Build>, context: Contex
         .sub
         .parse::<endpoint::Id>()
         .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(context.state.db.acquire().await?.as_mut(), endpoint_id)
+    let endpoint = Endpoint::get(context.state.service_db.acquire().await?.as_mut(), endpoint_id)
         .await
         .map_err(Error::LoadEndpoint)?;
 

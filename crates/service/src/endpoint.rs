@@ -105,14 +105,13 @@ impl Endpoint {
         )
         .bind(id.0)
         .fetch_one(conn)
-        .await
-        .map_err(database::Error::Execute)?;
+        .await?;
 
         Ok(endpoint)
     }
 
     /// Create or update this endpoint to the provided [`Database`]
-    pub async fn save<'a>(&self, tx: &mut database::Transaction<'a>) -> Result<(), database::Error> {
+    pub async fn save(&self, tx: &mut database::Transaction) -> Result<(), database::Error> {
         sqlx::query(
             "
             INSERT INTO endpoint
@@ -143,8 +142,7 @@ impl Endpoint {
         .bind(self.kind.role().to_string())
         .bind(self.kind.work_status().map(ToString::to_string))
         .execute(tx.as_mut())
-        .await
-        .map_err(database::Error::Execute)?;
+        .await?;
 
         Ok(())
     }
@@ -168,14 +166,13 @@ impl Endpoint {
             ",
         )
         .fetch_all(conn)
-        .await
-        .map_err(database::Error::Execute)?;
+        .await?;
 
         Ok(endpoints)
     }
 
     /// Delete this endpoint from the provided [`Database`]
-    pub async fn delete<'a>(&self, tx: &mut database::Transaction<'a>) -> Result<(), database::Error> {
+    pub async fn delete(&self, tx: &mut database::Transaction) -> Result<(), database::Error> {
         sqlx::query(
             "
             DELETE FROM endpoint
@@ -184,8 +181,7 @@ impl Endpoint {
         )
         .bind(self.id.0)
         .execute(tx.as_mut())
-        .await
-        .map_err(database::Error::Execute)?;
+        .await?;
 
         Ok(())
     }
@@ -211,7 +207,7 @@ pub struct Tokens {
 
 impl Tokens {
     /// Save the tokens related to [`Id`] to the provided [`Database`]
-    pub async fn save<'a>(&self, tx: &mut database::Transaction<'a>, id: Id) -> Result<(), database::Error> {
+    pub async fn save(&self, tx: &mut database::Transaction, id: Id) -> Result<(), database::Error> {
         sqlx::query(
             "
             UPDATE endpoint
@@ -225,8 +221,7 @@ impl Tokens {
         .bind(&self.access_token)
         .bind(id.0)
         .execute(tx.as_mut())
-        .await
-        .map_err(database::Error::Execute)?;
+        .await?;
 
         Ok(())
     }
@@ -247,8 +242,7 @@ impl Tokens {
         )
         .bind(id.0)
         .fetch_one(conn)
-        .await
-        .map_err(database::Error::Execute)?;
+        .await?;
 
         Ok(tokens)
     }

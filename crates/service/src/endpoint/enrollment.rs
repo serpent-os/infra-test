@@ -100,7 +100,7 @@ pub struct Target {
 
 /// Send auto-enrollment to the list of targets if the endpoint isn't already configured
 pub(crate) async fn auto_enrollment(targets: &[Target], ourself: Issuer, state: &State) -> Result<(), Error> {
-    let mut conn = state.db.acquire().await?;
+    let mut conn = state.service_db.acquire().await?;
 
     let endpoints = Endpoint::list(conn.as_mut()).await.map_err(Error::ListEndpoints)?;
 
