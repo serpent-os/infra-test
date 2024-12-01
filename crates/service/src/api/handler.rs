@@ -1,5 +1,5 @@
 //! Define a handler for an API [`Operation`]
-use futures::Future;
+use futures_util::Future;
 use service_core::api::Operation;
 
 use super::Request;

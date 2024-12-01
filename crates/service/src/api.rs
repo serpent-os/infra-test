@@ -8,7 +8,7 @@ use axum::{
     routing::{MethodFilter, MethodRouter},
     Json, Router,
 };
-use futures::{future::BoxFuture, FutureExt};
+use futures_util::{future::BoxFuture, FutureExt};
 
 use serde::Serialize;
 use service_core::auth;

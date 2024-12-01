@@ -7,7 +7,7 @@ use std::{
 };
 
 use color_eyre::eyre::{self, eyre, Context, Result};
-use futures::{stream, StreamExt, TryStreamExt};
+use futures_util::{stream, StreamExt, TryStreamExt};
 use moss::db::meta;
 use service::{api, database, request, Endpoint};
 use sha2::{Digest, Sha256};

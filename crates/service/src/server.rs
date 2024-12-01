@@ -49,7 +49,7 @@ impl<'a> Server<'a> {
     }
 }
 
-impl<'a> Server<'a> {
+impl Server<'_> {
     /// Override the default graceful shutdown duration (5s)
     pub fn with_graceful_shutdown(self, duration: Duration) -> Self {
         Self {
