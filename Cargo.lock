@@ -337,7 +337,6 @@ dependencies = [
  "clap",
  "color-eyre",
  "flate2",
- "futures",
  "hex",
  "http",
  "itertools",
@@ -1316,21 +1315,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "futures"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-executor",
- "futures-io",
- "futures-sink",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
 name = "futures-channel"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1416,7 +1400,6 @@ version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fa08315bb612088cc391249efdc3bc77536f16c91f6cf495e6fbe85b20a4a81"
 dependencies = [
- "futures-channel",
  "futures-core",
  "futures-io",
  "futures-macro",
@@ -2528,26 +2511,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pin-project"
-version = "1.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be57f64e946e500c8ee36ef6331845d40a93055567ec57e8fae13efd33759b95"
-dependencies = [
- "pin-project-internal",
-]
-
-[[package]]
-name = "pin-project-internal"
-version = "1.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c0f5fad0874fc7abcd4d750e76917eaebbecaa2c20bde22e1dbeeba8beb758c"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.90",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3153,13 +3116,10 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
- "bitflags",
- "bytes",
  "chrono",
- "clap",
  "derive_more",
  "ed25519-dalek",
- "futures",
+ "futures-util",
  "hex",
  "http",
  "http-serde",
@@ -3176,13 +3136,11 @@ dependencies = [
  "strum",
  "thiserror 2.0.3",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "toml",
  "tower",
  "tower-http",
  "tracing",
- "tracing-futures",
  "tracing-subscriber",
  "url",
  "uuid",
@@ -3615,8 +3573,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
- "futures",
- "serde",
  "service",
  "tokio",
  "tracing",
@@ -4037,18 +3993,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-futures"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
-dependencies = [
- "futures",
- "futures-task",
- "pin-project",
- "tracing",
-]
-
-[[package]]
 name = "tracing-log"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4317,11 +4261,10 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
- "futures",
+ "futures-util",
  "hex",
  "http",
  "moss",
- "serde",
  "service",
  "sha2",
  "sqlx",

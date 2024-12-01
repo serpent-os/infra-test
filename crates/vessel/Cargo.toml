@@ -8,12 +8,11 @@ service = { path = "../service" }
 
 clap.workspace = true
 color-eyre.workspace = true
-futures.workspace = true
+futures-util.workspace = true
 hex.workspace = true
 http.workspace = true
 moss.workspace = true
 sha2.workspace = true
-serde.workspace = true
 sqlx.workspace = true
 stone.workspace = true
 strum.workspace = true

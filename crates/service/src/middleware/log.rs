@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::body::Body;
-use futures::{future::BoxFuture, FutureExt};
+use futures_util::{future::BoxFuture, FutureExt};
 use tracing::{debug, error, info_span, Instrument};
 
 use crate::error;

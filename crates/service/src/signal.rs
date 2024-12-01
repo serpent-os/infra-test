@@ -1,7 +1,7 @@
 //! Capture unix signals
 use std::io;
 
-use futures::{future, FutureExt};
+use futures_util::{future, FutureExt};
 use tokio::signal::unix::signal;
 pub use tokio::signal::unix::SignalKind as Kind;
 

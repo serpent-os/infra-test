@@ -1,7 +1,7 @@
 //! Download local or remote files
 use std::{io, path::Path};
 
-use futures::StreamExt;
+use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{fs::File, io::AsyncWriteExt};
