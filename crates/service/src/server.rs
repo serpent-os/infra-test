@@ -137,14 +137,11 @@ impl Server<'_> {
             }
         }
 
-        let app = axum::Router::new()
-            .nest("/", self.router)
-            .layer(self.extract_token)
-            .layer(middleware::Log);
         let listener = tokio::net::TcpListener::bind(addr).await?;
+        let router = self.router.layer(self.extract_token).layer(middleware::Log);
 
         self.runner
-            .with_task("http server", axum::serve(listener, app))
+            .with_task("http server", axum::serve(listener, router))
             .with_task("signal capture", signal::capture(self.signals))
             .run()
             .await;
