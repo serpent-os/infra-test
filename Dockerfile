@@ -8,7 +8,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git <<"EOT" /bin/sh
     git clone https://github.com/serpent-os/tools /tools
     cd /tools
-    git checkout fix/run-in-docker
     cargo install --path ./boulder
 EOT
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

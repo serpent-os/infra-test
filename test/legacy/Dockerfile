@@ -39,7 +39,7 @@ RUN --mount=type=cache,target=/root/.dub <<"EOT" /bin/bash
 EOT
 # Install boulder
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-RUN git clone https://github.com/serpent-os/tools.git && cd tools && git checkout fix/run-in-docker
+RUN git clone https://github.com/serpent-os/tools.git && cd tools
 RUN ~/.cargo/bin/cargo install --path tools/boulder
 
 FROM debian:bookworm-slim AS base
