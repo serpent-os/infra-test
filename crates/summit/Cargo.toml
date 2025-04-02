@@ -8,5 +8,6 @@ service = { path = "../service" }
 
 clap.workspace = true
 color-eyre.workspace = true
+strum.workspace = true
 tokio.workspace = true
 tracing.workspace = true

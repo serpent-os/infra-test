@@ -7,6 +7,12 @@ use tracing::info;
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
 
+mod profile;
+mod project;
+mod queue;
+mod repo;
+mod worker;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let Args {
@@ -22,9 +28,15 @@ async fn main() -> Result<()> {
 
     let state = State::load(root).await?;
 
+    let (worker_sender, worker_task) = worker::run(&state).await?;
+
     info!("summit listening on {host}:{port}");
 
-    Server::new(Role::Hub, &config, &state).start((host, port)).await?;
+    Server::new(Role::Hub, &config, &state)
+        .with_task("worker", worker_task)
+        .with_task("timer", worker::timer_task(worker_sender))
+        .start((host, port))
+        .await?;
 
     Ok(())
 }
