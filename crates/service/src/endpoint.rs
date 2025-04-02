@@ -11,9 +11,8 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::{
-    account, database,
+    Role, Token, account, database,
     token::{self, VerifiedToken},
-    Role, Token,
 };
 
 pub mod enrollment;

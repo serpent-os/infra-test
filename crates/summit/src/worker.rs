@@ -22,7 +22,9 @@ pub enum Message {
     Timer(Instant),
 }
 
-pub async fn run(_service_state: &service::State) -> Result<(Sender, impl Future<Output = Result<(), Infallible>>)> {
+pub async fn run(
+    _service_state: &service::State,
+) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
 
     let task = async move {

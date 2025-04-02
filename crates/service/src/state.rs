@@ -6,11 +6,11 @@ use tokio::fs;
 use tracing::debug;
 
 use crate::{
+    Database,
     crypto::{self, KeyPair},
     database,
     endpoint::{self, enrollment},
     sync::SharedMap,
-    Database,
 };
 
 /// Service state

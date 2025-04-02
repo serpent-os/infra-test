@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::net::ToSocketAddrs;
 use tracing::error;
 
-use crate::{account, api, endpoint::enrollment, error, middleware, signal, task, token, Config, Role, State};
+use crate::{Config, Role, State, account, api, endpoint::enrollment, error, middleware, signal, task, token};
 
 pub use crate::task::CancellationToken;
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{operation, Collectable};
+use crate::{Collectable, operation};
 
 operation!(Build, POST, "vessel/build", ACCESS_TOKEN | SERVICE_ACCOUNT | NOT_EXPIRED, req: BuildRequestBody);
 

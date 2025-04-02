@@ -6,11 +6,10 @@ use thiserror::Error;
 use tracing::{debug, error, info, info_span};
 
 use crate::{
-    account, api, client,
+    Account, Client, Database, Endpoint, Role, State, account, api, client,
     crypto::{EncodedPublicKey, KeyPair, PublicKey},
     database, endpoint, error,
     token::{self, VerifiedToken},
-    Account, Client, Database, Endpoint, Role, State,
 };
 
 pub use service_core::endpoint::enrollment::Request;

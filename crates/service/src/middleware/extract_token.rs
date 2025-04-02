@@ -5,11 +5,10 @@ use axum::body::Body;
 use tracing::{debug, warn};
 
 use crate::{
-    account,
-    auth::{flag_names, Flags},
+    Token, account,
+    auth::{Flags, flag_names},
     crypto::PublicKey,
     token::{self, Validation, VerifiedToken},
-    Token,
 };
 
 /// Middleware to extract auth token and decorate request with [`Flags`],

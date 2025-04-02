@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{operation, Collectable};
+use crate::{Collectable, operation};
 
 operation!(BuildSucceeded, POST, "summit/buildSucceeded", ACCESS_TOKEN | SERVICE_ACCOUNT | NOT_EXPIRED, req: BuildBody);
 operation!(BuildFailed, POST, "summit/buildFailed", ACCESS_TOKEN | SERVICE_ACCOUNT | NOT_EXPIRED, req: BuildBody);

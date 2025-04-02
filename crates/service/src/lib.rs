@@ -1,14 +1,14 @@
 #![warn(missing_docs)]
 //! Shared service code for Serpent OS infrastructure
 
-pub use service_core::{auth, collectable, remote, role, Collectable, Remote, Role};
+pub use service_core::{Collectable, Remote, Role, auth, collectable, remote, role};
 
 pub use self::account::Account;
 pub use self::client::Client;
 pub use self::config::Config;
 pub use self::database::Database;
 pub use self::endpoint::Endpoint;
-pub use self::server::{start, Server};
+pub use self::server::{Server, start};
 pub use self::state::State;
 pub use self::token::Token;
 

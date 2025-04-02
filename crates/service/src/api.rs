@@ -2,13 +2,13 @@
 use std::{any, marker::PhantomData};
 
 use axum::{
+    Json, Router,
     extract::{FromRequest, FromRequestParts, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{MethodFilter, MethodRouter},
-    Json, Router,
 };
-use futures_util::{future::BoxFuture, FutureExt};
+use futures_util::{FutureExt, future::BoxFuture};
 
 use serde::Serialize;
 use service_core::auth;
@@ -17,8 +17,8 @@ use tracing::warn;
 use crate::{middleware, token::VerifiedToken};
 
 pub use service_core::api::{
-    operation::{self, Operation},
     Version,
+    operation::{self, Operation},
 };
 
 pub use self::handler::Handler;

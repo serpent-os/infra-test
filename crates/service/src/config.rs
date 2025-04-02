@@ -7,10 +7,11 @@ use serde::Deserialize;
 use tokio::fs;
 
 use crate::{
+    Role,
     account::Admin,
     crypto::{KeyPair, PublicKey},
     endpoint::enrollment::{self, Issuer},
-    tracing, Role,
+    tracing,
 };
 
 /// Service configuration

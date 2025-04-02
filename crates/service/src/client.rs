@@ -7,11 +7,10 @@ use thiserror::Error;
 use tracing::{error, info};
 
 use crate::{
-    account, api,
+    Account, Database, Endpoint, Token, account, api,
     crypto::{self, PublicKey},
     database, endpoint,
     token::{self, VerifiedToken},
-    Account, Database, Endpoint, Token,
 };
 
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {

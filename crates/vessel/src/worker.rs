@@ -6,13 +6,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use color_eyre::eyre::{self, eyre, Context, Result};
-use futures_util::{stream, StreamExt, TryStreamExt};
+use color_eyre::eyre::{self, Context, Result, eyre};
+use futures_util::{StreamExt, TryStreamExt, stream};
 use moss::db::meta;
-use service::{api, database, request, Endpoint};
+use service::{Endpoint, api, database, request};
 use sha2::{Digest, Sha256};
 use tokio::{fs, sync::mpsc, time::Instant};
-use tracing::{error, info, info_span, Instrument};
+use tracing::{Instrument, error, info, info_span};
 use url::Url;
 
 use crate::collection;
@@ -36,7 +36,9 @@ pub struct Package {
     pub sha256sum: String,
 }
 
-pub async fn run(service_state: &service::State) -> Result<(Sender, impl Future<Output = Result<(), Infallible>>)> {
+pub async fn run(
+    service_state: &service::State,
+) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
     let state = State::new(service_state).await.context("construct state")?;
 
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();

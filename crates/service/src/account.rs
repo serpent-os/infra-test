@@ -8,7 +8,7 @@ use strum::EnumString;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::{crypto::EncodedPublicKey, database, Database};
+use crate::{Database, crypto::EncodedPublicKey, database};
 
 /// Unique identifier of an [`Account`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, Into, Display, FromRow)]

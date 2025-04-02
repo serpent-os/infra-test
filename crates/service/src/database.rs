@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use sqlx::{pool::PoolConnection, Pool, Sqlite, SqliteConnection};
+use sqlx::{Pool, Sqlite, SqliteConnection, pool::PoolConnection};
 use thiserror::Error;
 
 pub use sqlx::migrate::Migrator;

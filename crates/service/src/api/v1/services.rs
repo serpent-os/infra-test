@@ -9,7 +9,7 @@ use tracing::{debug, error, info};
 pub use service_core::api::v1::services::*;
 
 use crate::{
-    account, api,
+    Config, Database, Role, Token, account, api,
     crypto::{EncodedPublicKey, PublicKey},
     endpoint::{
         self,
@@ -17,7 +17,7 @@ use crate::{
     },
     error,
     sync::SharedMap,
-    token, Config, Database, Role, Token,
+    token,
 };
 
 /// An implementation of the shared service operations

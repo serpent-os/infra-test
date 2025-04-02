@@ -1,6 +1,6 @@
 use std::sync::atomic::{self, AtomicBool};
 
-use service::{api, database, endpoint, Endpoint, State};
+use service::{Endpoint, State, api, database, endpoint};
 use thiserror::Error;
 use tracing::{error, info};
 

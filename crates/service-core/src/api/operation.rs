@@ -1,6 +1,6 @@
 //! An API operation
 use http;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::api::Version;
 use crate::auth;

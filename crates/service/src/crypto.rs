@@ -4,8 +4,8 @@ use std::{fmt, path::Path};
 use base64::Engine;
 use derive_more::{Display, From};
 use ed25519_dalek::{
+    SECRET_KEY_LENGTH, Signature, Signer,
     pkcs8::{DecodePrivateKey, EncodePrivateKey},
-    Signature, Signer, SECRET_KEY_LENGTH,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

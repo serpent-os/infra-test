@@ -1,13 +1,14 @@
 use std::path::Path;
 
-use color_eyre::eyre::{eyre, Context, OptionExt, Result};
+use color_eyre::eyre::{Context, OptionExt, Result, eyre};
 use http::Uri;
 use itertools::Itertools;
+use service::{Collectable, Remote, collectable};
 use service::{
+    Endpoint, State,
     api::{self, v1::avalanche::PackageBuild},
-    error, Endpoint, State,
+    error,
 };
-use service::{collectable, Collectable, Remote};
 use sha2::{Digest, Sha256};
 use tokio::{
     fs::{self, File},
