@@ -8,6 +8,13 @@ service = { path = "../service" }
 
 clap.workspace = true
 color-eyre.workspace = true
+derive_more.workspace = true
+http.workspace = true
+http-serde.workspace = true
+serde.workspace = true
+sqlx.workspace = true
 strum.workspace = true
+thiserror.workspace = true
+toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true

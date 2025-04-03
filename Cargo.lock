@@ -3496,9 +3496,16 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "color-eyre",
+ "derive_more",
+ "http",
+ "http-serde",
+ "serde",
  "service",
+ "sqlx",
  "strum",
+ "thiserror 2.0.9",
  "tokio",
+ "toml",
  "tracing",
 ]
 

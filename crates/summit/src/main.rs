@@ -1,16 +1,25 @@
 use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
+use color_eyre::eyre::Context;
 use service::{Role, Server, State};
 use tracing::info;
+
+pub use self::manager::Manager;
+pub use self::profile::Profile;
+pub use self::project::Project;
+pub use self::repository::Repository;
+pub use self::seed::seed;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
 
+mod manager;
 mod profile;
 mod project;
 mod queue;
-mod repo;
+mod repository;
+mod seed;
 mod worker;
 
 #[tokio::main]
@@ -20,13 +29,21 @@ async fn main() -> Result<()> {
         port,
         config,
         root,
+        seed_from,
     } = Args::parse();
 
     let config = Config::load(config.unwrap_or_else(|| root.join("config.toml"))).await?;
 
     service::tracing::init(&config.tracing);
 
-    let state = State::load(root).await?;
+    let state = State::load(root)
+        .await?
+        .with_migrations(sqlx::migrate!("./migrations"))
+        .await?;
+
+    if let Some(from_path) = seed_from {
+        seed(&state, from_path).await.context("seeding")?;
+    }
 
     let (worker_sender, worker_task) = worker::run(&state).await?;
 
@@ -51,4 +68,6 @@ struct Args {
     config: Option<PathBuf>,
     #[arg(long, short, default_value = ".")]
     root: PathBuf,
+    #[arg(long = "seed")]
+    seed_from: Option<PathBuf>,
 }

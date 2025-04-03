@@ -1,11 +1,14 @@
 use std::{convert::Infallible, future::Future, time::Duration};
 
-use color_eyre::Result;
+use color_eyre::{Result, eyre::Context};
+use service::State;
 use tokio::{
     sync::mpsc,
     time::{self, Instant},
 };
 use tracing::{error, info};
+
+use crate::Manager;
 
 const TIMER_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -22,16 +25,16 @@ pub enum Message {
     Timer(Instant),
 }
 
-pub async fn run(
-    _service_state: &service::State,
-) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
+pub async fn run(state: &State) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
+
+    let manager = Manager::new(state).await.context("create manager")?;
 
     let task = async move {
         while let Some(message) = receiver.recv().await {
             let kind = message.to_string();
 
-            if let Err(e) = handle_message(message).await {
+            if let Err(e) = handle_message(&manager, message).await {
                 let error = service::error::chain(e.as_ref() as &dyn std::error::Error);
                 error!(message = kind, %error, "Error handling message");
             }
@@ -56,9 +59,9 @@ pub async fn timer_task(sender: Sender) -> Result<(), Infallible> {
     }
 }
 
-async fn handle_message(message: Message) -> Result<()> {
+async fn handle_message(manager: &Manager, message: Message) -> Result<()> {
     match message {
-        Message::AllocateBuilds => allocate_builds().await,
+        Message::AllocateBuilds => allocate_builds(manager).await,
         Message::BuildSucceeded => build_succeeded().await,
         Message::BuildFailed => build_failed().await,
         Message::ImportSucceeded => import_succeeded().await,
@@ -68,7 +71,7 @@ async fn handle_message(message: Message) -> Result<()> {
 }
 
 #[tracing::instrument(skip_all)]
-async fn allocate_builds() -> Result<()> {
+async fn allocate_builds(manager: &Manager) -> Result<()> {
     info!("Allocating builds");
 
     Ok(())
