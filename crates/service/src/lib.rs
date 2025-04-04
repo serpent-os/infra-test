@@ -24,6 +24,8 @@ pub mod crypto;
 pub mod database;
 pub mod endpoint;
 pub mod error;
+pub mod git;
+pub mod process;
 pub mod request;
 pub mod server;
 pub mod signal;

@@ -20,6 +20,8 @@ pub struct State {
     pub root: PathBuf,
     /// State directory
     pub state_dir: PathBuf,
+    /// Cache directory
+    pub cache_dir: PathBuf,
     /// Database directory
     pub db_dir: PathBuf,
     /// Service database
@@ -39,6 +41,7 @@ impl State {
         let root = root.into();
 
         let state_dir = root.join("state");
+        let cache_dir = root.join("cache");
         let db_dir = state_dir.join("db");
 
         if !db_dir.exists() {
@@ -71,6 +74,7 @@ impl State {
         Ok(Self {
             root,
             state_dir,
+            cache_dir,
             db_dir,
             service_db,
             key_pair,

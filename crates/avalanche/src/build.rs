@@ -1,19 +1,16 @@
 use std::path::Path;
 
-use color_eyre::eyre::{Context, OptionExt, Result, eyre};
+use color_eyre::eyre::{Context, OptionExt, Result};
 use http::Uri;
 use itertools::Itertools;
-use service::{Collectable, Remote, collectable};
+use service::{Collectable, Remote, collectable, git};
 use service::{
     Endpoint, State,
     api::{self, v1::avalanche::PackageBuild},
     error,
 };
 use sha2::{Digest, Sha256};
-use tokio::{
-    fs::{self, File},
-    process,
-};
+use tokio::fs::{self, File};
 use tracing::{error, info};
 
 use crate::Config;
@@ -63,8 +60,7 @@ pub async fn build(request: PackageBuild, endpoint: Endpoint, state: State, conf
 async fn run(request: PackageBuild, _endpoint: Endpoint, state: State, config: Config) -> Result<Vec<Collectable>> {
     let uri = request.uri.parse::<Uri>().context("invalid upstream URI")?;
 
-    let cache_dir = state.state_dir.join("cache");
-    let mirror_dir = cache_dir.join(
+    let mirror_dir = state.cache_dir.join(
         uri.path()
             .strip_prefix("/")
             .ok_or_eyre("path should always have leading slash")?,
@@ -85,11 +81,18 @@ async fn run(request: PackageBuild, _endpoint: Endpoint, state: State, config: C
 
     let log_file = asset_dir.join("build.log");
 
-    mirror_recipe_repo(&uri, &mirror_dir)
-        .await
-        .context("mirror recipe repo")?;
+    if mirror_dir.exists() {
+        info!(%uri, "Updating mirror of recipe repo");
 
-    checkout_commit_to_worktree(&mirror_dir, &worktree_dir, &request.commit_ref)
+        git::remote_update(&mirror_dir).await?;
+    } else {
+        info!(%uri, "Creating mirror of recipe repo");
+
+        git::mirror(&uri, &mirror_dir).await?;
+    }
+
+    info!(commit_ref = request.commit_ref, "Checking out commit ref to worktree");
+    git::checkout_worktree(&mirror_dir, &worktree_dir, &request.commit_ref)
         .await
         .context("checkout commit as worktree")?;
 
@@ -110,7 +113,8 @@ async fn run(request: PackageBuild, _endpoint: Endpoint, state: State, config: C
         .await
         .context("scan collectables")?;
 
-    remove_worktree(&mirror_dir, &worktree_dir)
+    info!("Removing worktree");
+    git::remove_worktree(&mirror_dir, &worktree_dir)
         .await
         .context("remove worktree")?;
 
@@ -127,82 +131,6 @@ async fn recreate_dir(path: &Path) -> Result<()> {
     }
 
     Ok(fs::create_dir_all(path).await?)
-}
-
-fn validate_status(command: &'static str, result: Result<std::process::ExitStatus, std::io::Error>) -> Result<()> {
-    let status = result.context(command)?;
-
-    if !status.success() {
-        if let Some(code) = status.code() {
-            return Err(eyre!("{command} failed with exit status {code}"));
-        } else {
-            return Err(eyre!("{command} exited with failure"));
-        }
-    }
-
-    Ok(())
-}
-
-async fn mirror_recipe_repo(uri: &Uri, mirror_dir: &Path) -> Result<()> {
-    if mirror_dir.exists() {
-        info!(%uri, "Updating mirror of recipe repo");
-
-        validate_status(
-            "git remote update",
-            process::Command::new("git")
-                .args(["remote", "update"])
-                .current_dir(mirror_dir)
-                .output()
-                .await
-                .map(|o| o.status),
-        )?;
-    } else {
-        info!(%uri, "Creating mirror of recipe repo");
-
-        validate_status(
-            "git clone --mirror",
-            process::Command::new("git")
-                .args(["clone", "--mirror", "--"])
-                .arg(uri.to_string())
-                .arg(mirror_dir)
-                .output()
-                .await
-                .map(|o| o.status),
-        )?;
-    }
-
-    Ok(())
-}
-
-async fn checkout_commit_to_worktree(mirror_dir: &Path, worktree_dir: &Path, commit_ref: &str) -> Result<()> {
-    info!(commit_ref, "Checking out commit ref to worktree");
-
-    validate_status(
-        "git worktree add",
-        process::Command::new("git")
-            .args(["worktree", "add"])
-            .arg(worktree_dir)
-            .arg(commit_ref)
-            .current_dir(mirror_dir)
-            .output()
-            .await
-            .map(|o| o.status),
-    )
-}
-
-async fn remove_worktree(mirror_dir: &Path, worktree_dir: &Path) -> Result<()> {
-    info!("Removing worktree");
-
-    validate_status(
-        "git worktree remove",
-        process::Command::new("git")
-            .args(["worktree", "remove"])
-            .arg(worktree_dir)
-            .current_dir(mirror_dir)
-            .output()
-            .await
-            .map(|o| o.status),
-    )
 }
 
 async fn create_boulder_config(work_dir: &Path, remotes: &[Remote]) -> Result<()> {
@@ -258,9 +186,11 @@ async fn build_recipe(
 
     info!("Building recipe");
 
-    validate_status(
-        "boulder",
-        process::Command::new("sudo")
+    let stdout = log_file.try_clone()?;
+    let stderr = log_file;
+
+    service::process::execute("sudo", |process| {
+        process
             .args(["nice", "-n20", "boulder", "build", "-p", "avalanche", "--update", "-o"])
             .arg(asset_dir)
             .arg("--config-dir")
@@ -268,11 +198,12 @@ async fn build_recipe(
             .arg("--")
             .arg(relative_path)
             .current_dir(worktree_dir)
-            .stdout(log_file.try_clone()?)
-            .stderr(log_file)
-            .status()
-            .await,
-    )
+            .stdout(stdout)
+            .stderr(stderr)
+    })
+    .await?;
+
+    Ok(())
 }
 
 fn compress_file(file: &Path) -> Result<()> {

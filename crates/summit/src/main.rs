@@ -45,7 +45,9 @@ async fn main() -> Result<()> {
         seed(&state, from_path).await.context("seeding")?;
     }
 
-    let (worker_sender, worker_task) = worker::run(&state).await?;
+    let manager = Manager::load(state.clone()).await.context("load manager")?;
+
+    let (worker_sender, worker_task) = worker::run(manager).await?;
 
     info!("summit listening on {host}:{port}");
 

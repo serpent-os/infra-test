@@ -1,12 +1,17 @@
 use derive_more::derive::{Display, From, Into};
 use http::Uri;
 use serde::{Deserialize, Serialize};
-use service::database::Transaction;
-use sqlx::FromRow;
+use sqlx::{FromRow, SqliteConnection};
 
-use crate::project;
+pub use self::create::create;
+pub use self::refresh::refresh;
+pub use self::reindex::reindex;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, Into, Display, FromRow)]
+mod create;
+mod refresh;
+mod reindex;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
 
 #[derive(Debug, Clone)]
@@ -26,52 +31,74 @@ pub struct Repository {
 pub enum Status {
     /// Never cloned before
     Fresh,
-    /// Updating git ref
-    Updating,
     /// Cloning for the first time
     Cloning,
+    /// Updating git ref
+    Updating,
     /// Indexing for updates
     Indexing,
     /// Doing nothing
     Idle,
 }
 
-pub async fn create(
-    tx: &mut Transaction,
-    project: project::Id,
-    name: String,
-    summary: String,
-    origin_uri: Uri,
-) -> Result<Repository, sqlx::Error> {
-    let (id,): (i64,) = sqlx::query_as(
+pub async fn set_status(conn: &mut SqliteConnection, repo: &mut Repository, status: Status) -> Result<(), sqlx::Error> {
+    sqlx::query(
         "
-        INSERT INTO repository
-        (
-          name,
-          summary,
-          origin_uri,
-          status,
-          project_id
-        )
-        VALUES (?,?,?,?,?)
-        RETURNING repository_id;
+        UPDATE repository
+        SET status = ?
+        WHERE repository_id = ?;
         ",
     )
-    .bind(&name)
-    .bind(&summary)
-    .bind(origin_uri.to_string())
-    .bind(Status::Fresh.to_string())
-    .bind(i64::from(project))
-    .fetch_one(tx.as_mut())
+    .bind(status.to_string())
+    .bind(i64::from(repo.id))
+    .execute(&mut *conn)
     .await?;
 
-    Ok(Repository {
-        id: Id(id),
-        name,
-        summary,
-        description: None,
-        commit_ref: None,
-        origin_uri,
-        status: Status::Fresh,
-    })
+    repo.status = status;
+
+    Ok(())
+}
+
+pub async fn set_commit_ref(
+    conn: &mut SqliteConnection,
+    repo: &mut Repository,
+    commit_ref: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "
+        UPDATE repository
+        SET commit_ref = ?
+        WHERE repository_id = ?;
+        ",
+    )
+    .bind(commit_ref)
+    .bind(i64::from(repo.id))
+    .execute(&mut *conn)
+    .await?;
+
+    repo.commit_ref = Some(commit_ref.to_owned());
+
+    Ok(())
+}
+
+pub async fn set_description(
+    conn: &mut SqliteConnection,
+    repo: &mut Repository,
+    description: String,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "
+        UPDATE repository
+        SET description = ?
+        WHERE repository_id = ?;
+        ",
+    )
+    .bind(&description)
+    .bind(i64::from(repo.id))
+    .execute(&mut *conn)
+    .await?;
+
+    repo.description = Some(description);
+
+    Ok(())
 }

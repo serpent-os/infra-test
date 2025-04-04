@@ -10,7 +10,7 @@ pub use self::remote::Remote;
 
 pub mod remote;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, From, Into, Display, FromRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
 
 #[derive(Debug, Clone)]

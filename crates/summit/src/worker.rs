@@ -1,14 +1,13 @@
 use std::{convert::Infallible, future::Future, time::Duration};
 
 use color_eyre::{Result, eyre::Context};
-use service::State;
 use tokio::{
     sync::mpsc,
     time::{self, Instant},
 };
-use tracing::{error, info};
+use tracing::{Span, error, info};
 
-use crate::Manager;
+use crate::{Manager, repository};
 
 const TIMER_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -25,10 +24,8 @@ pub enum Message {
     Timer(Instant),
 }
 
-pub async fn run(state: &State) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
+pub async fn run(manager: Manager) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
-
-    let manager = Manager::new(state).await.context("create manager")?;
 
     let task = async move {
         while let Some(message) = receiver.recv().await {
@@ -61,17 +58,17 @@ pub async fn timer_task(sender: Sender) -> Result<(), Infallible> {
 
 async fn handle_message(manager: &Manager, message: Message) -> Result<()> {
     match message {
-        Message::AllocateBuilds => allocate_builds(manager).await,
+        Message::AllocateBuilds => allocate_builds().await,
         Message::BuildSucceeded => build_succeeded().await,
         Message::BuildFailed => build_failed().await,
         Message::ImportSucceeded => import_succeeded().await,
         Message::ImportFailed => import_failed().await,
-        Message::Timer(_) => timer().await,
+        Message::Timer(_) => timer(manager).await,
     }
 }
 
 #[tracing::instrument(skip_all)]
-async fn allocate_builds(manager: &Manager) -> Result<()> {
+async fn allocate_builds() -> Result<()> {
     info!("Allocating builds");
 
     Ok(())
@@ -105,9 +102,37 @@ async fn import_failed() -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip_all)]
-async fn timer() -> Result<()> {
+#[tracing::instrument(skip_all, fields(project, repository))]
+async fn timer(manager: &Manager) -> Result<()> {
     info!("Timer triggered");
+
+    let span = Span::current();
+
+    let mut have_changes = false;
+
+    let mut conn = manager.acquire().await.context("acquire db conn")?;
+
+    for mut project in manager.projects().await.context("list projects")? {
+        span.record("project", &project.slug);
+
+        for repo in &mut project.repositories {
+            span.record("repository", &repo.name);
+
+            let changed = repository::refresh(&mut conn, &manager.state, repo)
+                .await
+                .context("refresh repository")?;
+
+            if changed {
+                let db = manager.repository_db(&repo.id)?.clone();
+
+                repository::reindex(&mut conn, &manager.state, repo, db)
+                    .await
+                    .context("reindex repository")?;
+
+                have_changes = true;
+            }
+        }
+    }
 
     Ok(())
 }
