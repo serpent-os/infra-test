@@ -13,7 +13,7 @@ docker-build-legacy target:
 	@docker build . -t serpentos/{{target}}:legacy --target {{target}} -f test/legacy/Dockerfile
 
 # Build docker containers
-build: (docker-build-legacy "summit") (docker-build "avalanche") (docker-build "vessel")
+build: (docker-build "summit") (docker-build "avalanche") (docker-build "vessel")
 
 # Bring up docker containers
 up *ARGS: build

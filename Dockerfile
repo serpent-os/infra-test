@@ -23,12 +23,14 @@ EOT
 
 FROM alpine:3.20 AS summit
 WORKDIR /app
+RUN apk add --no-cache sudo git
 COPY --from=rust-builder /summit .
 VOLUME /app/state
 VOLUME /app/config.toml
+VOLUME /app/seed.toml
 EXPOSE 5000
 ENTRYPOINT ["/app/summit"]
-CMD ["0.0.0.0", "--port", "5000", "--root", "/app"]
+CMD ["0.0.0.0", "--port", "5000", "--root", "/app", "--seed", "/app/seed.toml"]
 
 FROM alpine:3.20 AS vessel
 WORKDIR /app

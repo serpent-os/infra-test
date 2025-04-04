@@ -41,7 +41,7 @@ impl State {
         let root = root.into();
 
         let state_dir = root.join("state");
-        let cache_dir = root.join("cache");
+        let cache_dir = state_dir.join("cache");
         let db_dir = state_dir.join("db");
 
         if !db_dir.exists() {

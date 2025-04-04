@@ -8,18 +8,29 @@ services:
       - summit-state:/summit
       - ./legacy/Caddyfile:/etc/caddy/Caddyfile
   # Legacy
+  # summit:
+  #   image: serpentos/summit:legacy
+  #   volumes:
+  #     - summit-state:/app/state
+  #     - ./legacy/summit/.seed:/app/state/.seed
+  #     - ./legacy/summit/seed.json:/app/seed.json
+  #   depends_on:
+  #     vessel:
+  #       condition: service_started
+  #     avalanche:
+  #       condition: service_started
+  
+  # Rust
   summit:
-    image: serpentos/summit:legacy
+    image: serpentos/summit
     volumes:
       - summit-state:/app/state
-      - ./legacy/summit/.seed:/app/state/.seed
-      - ./legacy/summit/seed.json:/app/seed.json
-    depends_on:
-      vessel:
-        condition: service_started
-      avalanche:
-        condition: service_started
-  # Rust
+      - ./summit/.privkey:/app/state/.privkey
+      - ./summit/config.toml:/app/config.toml
+      - ./summit/seed.toml:/app/seed.toml
+    # depends_on:
+    #   caddy:
+    #     condition: service_started
   vessel:
     image: serpentos/vessel
     ports:

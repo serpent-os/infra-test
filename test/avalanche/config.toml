@@ -1,7 +1,7 @@
 description = "Avalanche (test)"
 host_address = "http://avalanche:5002"
 
-upstream = "5zIaXc6Cn9qEAk2rNcyu-KDVtdFGcJtx9p2gZdDaxhU"
+upstream = "gjbJc9Tyuj6nttjQBWV0E813d3ZnH2hZ9EtBEl6Tdn4"
 
 [tracing]
 level_filter = "info,avalanche=debug,service=debug"
