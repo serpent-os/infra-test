@@ -7,7 +7,7 @@ use tokio::{
 };
 use tracing::{Span, error, info};
 
-use crate::{Manager, repository};
+use crate::{Manager, repository, task};
 
 const TIMER_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -112,27 +112,33 @@ async fn timer(manager: &Manager) -> Result<()> {
 
     let mut conn = manager.acquire().await.context("acquire db conn")?;
 
-    for mut project in manager.projects().await.context("list projects")? {
+    for project in manager.projects().await.context("list projects")? {
         span.record("project", &project.slug);
 
-        for repo in &mut project.repositories {
+        for repo in &project.repositories {
             span.record("repository", &repo.name);
 
-            let changed = repository::refresh(&mut conn, &manager.state, repo)
+            let (mut repo, changed) = repository::refresh(&mut conn, &manager.state, repo.clone())
                 .await
                 .context("refresh repository")?;
 
             if changed {
-                let db = manager.repository_db(&repo.id)?.clone();
+                let repo_db = manager.repository_db(&repo.id)?.clone();
 
-                repository::reindex(&mut conn, &manager.state, repo, db)
+                repo = repository::reindex(&mut conn, &manager.state, repo, repo_db.clone())
                     .await
                     .context("reindex repository")?;
+
+                task::create_missing(&mut conn, manager, &project, &repo, &repo_db)
+                    .await
+                    .context("create missing tasks")?;
 
                 have_changes = true;
             }
         }
     }
+
+    if have_changes {}
 
     Ok(())
 }

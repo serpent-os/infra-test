@@ -40,3 +40,26 @@ CREATE TABLE IF NOT EXISTS repository (
     UNIQUE(project_id, origin_uri),
     FOREIGN KEY(project_id) REFERENCES project(project_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS task (
+    task_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INT NOT NULL,
+    profile_id INT NOT NULL,
+    repository_id INT NOT NULL,
+    slug TEXT NOT NULL,
+    package_id TEXT NOT NULL,
+    arch TEXT NOT NULL,
+    build_id TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    commit_ref TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    status TEXT NOT NULL,
+    allocated_builder TEXT,
+    log_path TEXT,
+    started BIGINT NOT NULL DEFAULT (unixepoch()),
+    updated BIGINT NOT NULL DEFAULT (unixepoch()),
+    ended BIGINT,
+    FOREIGN KEY(project_id) REFERENCES project(project_id) ON DELETE CASCADE,
+    FOREIGN KEY(profile_id) REFERENCES profile(profile_id) ON DELETE CASCADE,
+    FOREIGN KEY(repository_id) REFERENCES repository(repository_id) ON DELETE CASCADE
+);

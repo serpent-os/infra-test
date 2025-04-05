@@ -7,10 +7,11 @@ use sqlx::{Sqlite, pool::PoolConnection};
 use tokio::task;
 use tracing::{Span, info};
 
-use crate::{Project, profile, project, repository};
+use crate::{Project, Queue, profile, project, repository};
 
 pub struct Manager {
     pub state: State,
+    pub queue: Queue,
     profile_dbs: HashMap<profile::Id, meta::Database>,
     repository_dbs: HashMap<repository::Id, meta::Database>,
 }
@@ -23,7 +24,7 @@ impl Manager {
         let span = Span::current();
 
         // Moss DB implementations are blocking
-        task::spawn_blocking(move || {
+        let (state, projects, profile_dbs, repository_dbs) = task::spawn_blocking(move || {
             let _enter = span.enter();
 
             let profile_dbs = projects
@@ -34,7 +35,7 @@ impl Manager {
                         .iter()
                         .map(|profile| Ok((profile.id, connect_profile_db(&state, &profile.id)?)))
                 })
-                .collect::<Result<_, eyre::Error>>()?;
+                .collect::<Result<HashMap<_, _>, eyre::Error>>()?;
 
             let repository_dbs = projects
                 .iter()
@@ -44,18 +45,28 @@ impl Manager {
                         .iter()
                         .map(|repo| Ok((repo.id, connect_repository_db(&state, &repo.id)?)))
                 })
-                .collect::<Result<_, eyre::Error>>()?;
+                .collect::<Result<HashMap<_, _>, eyre::Error>>()?;
 
             info!(num_projects = projects.len(), "Projects loaded");
 
-            Ok(Self {
-                state,
-                profile_dbs,
-                repository_dbs,
-            })
+            Result::<_, eyre::Error>::Ok((state, projects, profile_dbs, repository_dbs))
         })
         .await
-        .context("join handle")?
+        .context("join handle")??;
+
+        // Refresh all profiles
+        for profile in projects.iter().flat_map(|p| &p.profiles) {
+            let db = profile_dbs.get(&profile.id).ok_or_eyre("missing profile db").cloned()?;
+
+            profile::refresh(&state, profile, db).await.context("refresh profile")?;
+        }
+
+        Ok(Self {
+            state,
+            queue: Queue::default(),
+            profile_dbs,
+            repository_dbs,
+        })
     }
 
     pub async fn begin(&self) -> Result<Transaction> {

@@ -8,8 +8,10 @@ use tracing::info;
 pub use self::manager::Manager;
 pub use self::profile::Profile;
 pub use self::project::Project;
+pub use self::queue::Queue;
 pub use self::repository::Repository;
 pub use self::seed::seed;
+pub use self::task::Task;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
@@ -20,6 +22,7 @@ mod project;
 mod queue;
 mod repository;
 mod seed;
+mod task;
 mod worker;
 
 #[tokio::main]

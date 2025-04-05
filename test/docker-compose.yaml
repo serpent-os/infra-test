@@ -28,9 +28,13 @@ services:
       - ./summit/.privkey:/app/state/.privkey
       - ./summit/config.toml:/app/config.toml
       - ./summit/seed.toml:/app/seed.toml
-    # depends_on:
-    #   caddy:
-    #     condition: service_started
+    depends_on:
+      vessel:
+        condition: service_started
+      avalanche:
+        condition: service_started
+      caddy:
+        condition: service_started
   vessel:
     image: serpentos/vessel
     ports:

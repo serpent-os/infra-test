@@ -24,8 +24,8 @@ logs *ARGS:
 	docker compose logs --follow {{ARGS}}
 
 # Bring down docker containers
-down:
-	docker compose down -v
+down *ARGS:
+	docker compose down -v {{ARGS}}
 
 # Bring up test environment and bootstrap
 bootstrap: up

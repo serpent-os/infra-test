@@ -9,31 +9,31 @@ use tracing::{debug, info, warn};
 use super::{Repository, Status, set_commit_ref, set_status};
 
 #[tracing::instrument(name = "refresh_repository", skip_all)]
-pub async fn refresh(conn: &mut SqliteConnection, state: &State, repo: &mut Repository) -> Result<bool> {
+pub async fn refresh(conn: &mut SqliteConnection, state: &State, mut repo: Repository) -> Result<(Repository, bool)> {
     debug!("Refreshing repository");
 
     let current_ref = match repo.status {
-        Status::Fresh => clone_git(&mut *conn, state, repo).await.context("clone git")?,
+        Status::Fresh => clone_git(&mut *conn, state, &mut repo).await.context("clone git")?,
         // We must have failed previously while cloning or updating. Try again from a fresh clone
         status @ (Status::Cloning | Status::Updating) => {
             warn!(%status, "Previous refresh failed, re-cloning...");
-            clone_git(&mut *conn, state, repo).await.context("update git")?
+            clone_git(&mut *conn, state, &mut repo).await.context("update git")?
         }
-        _ => update_git(&mut *conn, state, repo).await.context("update git")?,
+        _ => update_git(&mut *conn, state, &mut repo).await.context("update git")?,
     };
 
     if Some(&current_ref) != repo.commit_ref.as_ref() {
-        set_commit_ref(&mut *conn, repo, &current_ref)
+        set_commit_ref(&mut *conn, &mut repo, &current_ref)
             .await
             .context("set commit ref")?;
 
         info!(old_ref = repo.commit_ref, new_ref = current_ref, "Repository updated");
 
-        Ok(true)
+        Ok((repo, true))
     } else {
         debug!("No change in repository");
 
-        Ok(false)
+        Ok((repo, false))
     }
 }
 

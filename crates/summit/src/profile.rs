@@ -6,8 +6,10 @@ use sqlx::FromRow;
 
 use crate::project;
 
+pub use self::refresh::refresh;
 pub use self::remote::Remote;
 
+pub mod refresh;
 pub mod remote;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]

@@ -13,12 +13,12 @@ use super::{Repository, Status, set_description, set_status};
 pub async fn reindex(
     conn: &mut SqliteConnection,
     state: &State,
-    repo: &mut Repository,
+    mut repo: Repository,
     db: meta::Database,
-) -> Result<()> {
+) -> Result<Repository> {
     info!("Reindexing repository");
 
-    set_status(conn, repo, Status::Indexing)
+    set_status(conn, &mut repo, Status::Indexing)
         .await
         .context("set status to indexing")?;
 
@@ -26,24 +26,26 @@ pub async fn reindex(
     let clone_dir = repo_dir.join("clone");
     let work_dir = repo_dir.join("work");
 
-    checkout_commit(repo, &clone_dir, &work_dir)
+    checkout_commit(&mut repo, &clone_dir, &work_dir)
         .await
         .context("checkout commit")?;
 
-    update_readme(conn, repo, &work_dir).await.context("update readme")?;
+    update_readme(conn, &mut repo, &work_dir)
+        .await
+        .context("update readme")?;
 
     let num_indexed = task::spawn_blocking(move || update_manifests(work_dir, db))
         .await
         .context("join handle")?
         .context("update manifests")?;
 
-    set_status(conn, repo, Status::Idle)
+    set_status(conn, &mut repo, Status::Idle)
         .await
         .context("set status to idle")?;
 
     info!(num_indexed, "Indexing finished");
 
-    Ok(())
+    Ok(repo)
 }
 
 async fn checkout_commit(repo: &Repository, clone_dir: &Path, work_dir: &Path) -> Result<()> {
@@ -80,7 +82,7 @@ fn update_manifests(work_dir: PathBuf, db: meta::Database) -> Result<usize> {
     db.wipe().context("wipe meta db")?;
 
     for manifest in &manifests {
-        install_manifest(&db, manifest).context("install manifest")?;
+        install_manifest(&db, &work_dir, manifest).context("install manifest")?;
     }
 
     Ok(manifests.len())
@@ -110,8 +112,17 @@ fn enumerate_manifests(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 #[tracing::instrument(skip_all, fields(manifest = %manifest.display()))]
-fn install_manifest(db: &meta::Database, manifest: &Path) -> Result<()> {
+fn install_manifest(db: &meta::Database, work_dir: &Path, manifest: &Path) -> Result<()> {
     use std::fs;
+
+    let parent = manifest.parent().ok_or_eyre("manifest path has no parent")?;
+    let recipe_path = parent.join("stone.yaml");
+    let relative_path = recipe_path
+        .strip_prefix(work_dir)
+        // Impossible
+        .context("manifest not a descendent of work dir")?;
+
+    let hash = compute_hash(&recipe_path).context("compute sha256 of recipe")?;
 
     let file = fs::File::open(manifest).context("open manifest reader")?;
 
@@ -128,11 +139,24 @@ fn install_manifest(db: &meta::Database, manifest: &Path) -> Result<()> {
         .find_map(stone::read::PayloadKind::meta)
         .ok_or_eyre("missing meta payload")?;
 
-    let meta = Meta::from_stone_payload(&meta_payload.body).context("convert meta payload to metadata")?;
+    let mut meta = Meta::from_stone_payload(&meta_payload.body).context("convert meta payload to metadata")?;
+    meta.hash = Some(hash);
+    meta.uri = Some(relative_path.display().to_string());
 
     db.add(meta.id().into(), meta).context("add meta to db")?;
 
     trace!("Manifest installed");
 
     Ok(())
+}
+
+fn compute_hash(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::{fs, io};
+
+    let mut hasher = Sha256::default();
+
+    io::copy(&mut fs::File::open(path)?, &mut hasher)?;
+
+    Ok(hex::encode(hasher.finalize()))
 }
