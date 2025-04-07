@@ -26,7 +26,7 @@ pub async fn remote_update(path: &Path) -> Result<(), process::Error> {
 pub async fn checkout_worktree(source_dir: &Path, worktree_dir: &Path, commit_ref: &str) -> Result<(), process::Error> {
     process::output("git", |process| {
         process
-            .args(["worktree", "add"])
+            .args(["worktree", "add", "-f"])
             .arg(worktree_dir)
             .arg(commit_ref)
             .current_dir(source_dir)
