@@ -10,14 +10,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     cd /tools
     cargo install --path ./boulder
 EOT
+ARG RUST_PROFILE="release"
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/tmp/target \
     --mount=type=bind,target=/src <<"EOT" /bin/sh
     for target in vessel summit avalanche
     do
-      cargo build -p "$target"
-      cp "/tmp/target/debug/$target" /
+      cargo build -p "$target" --profile "$RUST_PROFILE"
+      cp "/tmp/target/${RUST_PROFILE/dev/debug}/$target" /
     done
 EOT
 

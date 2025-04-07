@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
+use itertools::Itertools;
 use moss::package;
 use sqlx::{SqliteConnection, prelude::FromRow};
 
@@ -7,7 +8,26 @@ use crate::{profile, project, repository};
 
 use super::{Id, Status, Task};
 
-pub async fn list(conn: &mut SqliteConnection, statuses: impl Iterator<Item = Status>) -> Result<Vec<Task>> {
+#[derive(Debug, Default)]
+pub struct Params {
+    id: Option<Id>,
+    statuses: Option<Vec<Status>>,
+}
+
+impl Params {
+    pub fn id(self, id: Id) -> Self {
+        Self { id: Some(id), ..self }
+    }
+
+    pub fn statuses(self, statuses: impl IntoIterator<Item = Status>) -> Self {
+        Self {
+            statuses: Some(statuses.into_iter().collect()),
+            ..self
+        }
+    }
+}
+
+pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Task>> {
     #[derive(FromRow)]
     struct Row {
         #[sqlx(rename = "task_id", try_from = "i64")]
@@ -35,13 +55,22 @@ pub async fn list(conn: &mut SqliteConnection, statuses: impl Iterator<Item = St
         ended: Option<DateTime<Utc>>,
     }
 
-    let statuses = statuses.collect::<Vec<_>>();
+    let mut where_clause = String::default();
 
-    if statuses.is_empty() {
-        return Ok(vec![]);
-    }
+    if params.id.is_some() || params.statuses.is_some() {
+        let conditions = params
+            .id
+            .map(|_| "task_id = ?".to_string())
+            .into_iter()
+            .chain(params.statuses.as_ref().map(|statuses| {
+                let binds = ",?".repeat(statuses.len()).chars().skip(1).collect::<String>();
 
-    let binds = ",?".repeat(statuses.len()).chars().skip(1).collect::<String>();
+                format!("status IN ({binds})")
+            }))
+            .join(" AND ");
+
+        where_clause = format!("WHERE {conditions}");
+    };
 
     let query_str = format!(
         "
@@ -64,14 +93,20 @@ pub async fn list(conn: &mut SqliteConnection, statuses: impl Iterator<Item = St
           updated,
           ended
         FROM task
-        WHERE status IN ({binds});
+        {where_clause};
         ",
     );
 
     let mut query = sqlx::query_as::<_, Row>(&query_str);
 
-    for status in statuses {
-        query = query.bind(status.to_string());
+    if let Some(id) = params.id {
+        query = query.bind(i64::from(id));
+    }
+
+    if let Some(statuses) = params.statuses {
+        for status in statuses {
+            query = query.bind(status.to_string());
+        }
     }
 
     let rows = query.fetch_all(&mut *conn).await.context("fetch tasks")?;

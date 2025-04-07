@@ -1,24 +1,30 @@
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
 use derive_more::derive::{Display, From, Into};
+use http::Uri;
 use moss::{
     db::meta,
     dependency,
     package::{self, Meta},
 };
 use serde::{Deserialize, Serialize};
+use service::database::Transaction;
 use sqlx::{SqliteConnection, prelude::FromRow};
 use strum::IntoEnumIterator;
-use tokio::task;
+use tokio::task::spawn_blocking;
 use tracing::{debug, warn};
 
-use crate::{Manager, Project, Repository, profile, project, repository};
+use crate::{Manager, Project, Repository, profile, project, repository, task};
 
+pub use self::build::build;
 pub use self::create::create;
-pub use self::list::list;
+pub use self::query::query;
 
+pub mod build;
 pub mod create;
-pub mod list;
+pub mod query;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
@@ -74,6 +80,17 @@ impl Status {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Queued {
+    pub task: Task,
+    pub meta: Meta,
+    pub commit_ref: String,
+    pub origin_uri: Uri,
+    pub index_uri: Uri,
+    pub remotes: Vec<Uri>,
+    pub dependencies: Vec<task::Id>,
+}
+
 #[tracing::instrument(name = "create_missing_tasks", skip_all)]
 pub async fn create_missing(
     conn: &mut SqliteConnection,
@@ -85,7 +102,7 @@ pub async fn create_missing(
     for profile in &project.profiles {
         let profile_db = manager.profile_db(&profile.id).context("missing profile db")?;
 
-        let packages = task::spawn_blocking({
+        let packages = spawn_blocking({
             let repo_db = repo_db.clone();
             move || repo_db.query(None)
         })
@@ -176,4 +193,110 @@ pub async fn create_missing(
     }
 
     Ok(())
+}
+
+pub async fn set_status(tx: &mut Transaction, task_id: task::Id, status: Status) -> Result<()> {
+    let ended = if !status.is_open() { ", ended = unixepoch()" } else { "" };
+
+    let query = format!(
+        "
+        UPDATE task
+        SET
+          status = ?,
+          updated = unixepoch(){ended}
+        WHERE task_id = ?;
+        ",
+    );
+
+    sqlx::query(&query)
+        .bind(status.to_string())
+        .bind(i64::from(task_id))
+        .execute(tx.as_mut())
+        .await
+        .context("update task")?;
+
+    Ok(())
+}
+
+pub async fn set_log_path(tx: &mut Transaction, task_id: task::Id, log_path: &Path) -> Result<()> {
+    sqlx::query(
+        "
+        UPDATE task
+        SET
+          log_path = ?,
+          updated = unixepoch()
+        WHERE task_id = ?;
+        ",
+    )
+    .bind(log_path.display().to_string())
+    .bind(i64::from(task_id))
+    .execute(tx.as_mut())
+    .await
+    .context("update task")?;
+
+    Ok(())
+}
+
+pub async fn set_allocated_builder(tx: &mut Transaction, task_id: task::Id, allocated_builder: &str) -> Result<()> {
+    sqlx::query(
+        "
+        UPDATE task
+        SET
+          allocated_builder = ?,
+          updated = unixepoch()
+        WHERE task_id = ?;
+        ",
+    )
+    .bind(allocated_builder)
+    .bind(i64::from(task_id))
+    .execute(tx.as_mut())
+    .await
+    .context("update task")?;
+
+    Ok(())
+}
+
+pub async fn block(tx: &mut Transaction, task: Id, blocker: &str) -> Result<()> {
+    set_status(tx, task, Status::Blocked).await?;
+
+    let _ = sqlx::query(
+        "
+        INSERT INTO task_blockers (task_id, blocker)
+        VALUES (?,?);
+        ",
+    )
+    .bind(i64::from(task))
+    .bind(blocker)
+    .execute(tx.as_mut())
+    .await?;
+
+    Ok(())
+}
+
+pub async fn unblock(tx: &mut Transaction, task: Id, blocker: &str) -> Result<usize> {
+    let _ = sqlx::query(
+        "
+        DELETE FROM task_blockers
+        WHERE task_id = ? AND blocker = ?;
+        ",
+    )
+    .bind(i64::from(task))
+    .bind(blocker)
+    .execute(tx.as_mut())
+    .await?;
+
+    let (remaining,) = sqlx::query_as::<_, (u32,)>(
+        "
+        SELECT COUNT(*)
+        FROM task_blockers
+        WHERE task_id = ?;
+        ",
+    )
+    .bind(i64::from(task))
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    set_status(tx, task, if remaining > 0 { Status::Blocked } else { Status::New }).await?;
+
+    Ok(remaining as usize)
 }

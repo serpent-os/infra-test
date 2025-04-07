@@ -193,6 +193,19 @@ impl Endpoint {
             None
         }
     }
+
+    /// Returns true if this endpoint is an idle, operational builder
+    pub fn is_idle_builder(&self) -> bool {
+        matches!(self.status, Status::Operational)
+            && matches!(self.builder().map(|e| e.work_status), Some(builder::WorkStatus::Idle))
+    }
+
+    /// Set the work status of the builder endpoint
+    pub fn set_work_status(&mut self, new_status: builder::WorkStatus) {
+        if let Kind::Builder(builder::Extension { work_status }) = &mut self.kind {
+            *work_status = new_status;
+        }
+    }
 }
 
 /// Auth tokens used to connect to the endpoint

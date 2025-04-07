@@ -22,7 +22,7 @@ services:
   
   # Rust
   summit:
-    image: serpentos/summit
+    image: serpentos/summit:${RUST_PROFILE:-dev}
     volumes:
       - summit-state:/app/state
       - ./summit/.privkey:/app/state/.privkey
@@ -36,7 +36,7 @@ services:
       caddy:
         condition: service_started
   vessel:
-    image: serpentos/vessel
+    image: serpentos/vessel:${RUST_PROFILE:-dev}
     ports:
       - "5001:5001"
     volumes:
@@ -48,7 +48,7 @@ services:
       caddy:
         condition: service_started
   avalanche:
-    image: serpentos/avalanche
+    image: serpentos/avalanche:${RUST_PROFILE:-dev}
     ports:
       - "5002:5002"
     privileged: true

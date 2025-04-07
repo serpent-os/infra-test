@@ -1,9 +1,10 @@
+use http::Uri;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Remote {
-    #[serde(rename = "indexURI")]
-    pub index_uri: String,
+    #[serde(rename = "indexURI", with = "http_serde::uri")]
+    pub index_uri: Uri,
     pub name: String,
-    pub priority: u32,
+    pub priority: u64,
 }

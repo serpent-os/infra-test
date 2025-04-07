@@ -1,13 +1,14 @@
 use std::{convert::Infallible, future::Future, time::Duration};
 
 use color_eyre::{Result, eyre::Context};
+use service::{Collectable, endpoint};
 use tokio::{
     sync::mpsc,
     time::{self, Instant},
 };
-use tracing::{Span, error, info};
+use tracing::{Span, debug, error, info};
 
-use crate::{Manager, project, repository, task};
+use crate::{Manager, repository, task};
 
 const TIMER_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -17,10 +18,22 @@ pub type Sender = mpsc::UnboundedSender<Message>;
 #[strum(serialize_all = "kebab-case")]
 pub enum Message {
     AllocateBuilds,
-    BuildSucceeded,
-    BuildFailed,
-    ImportSucceeded,
-    ImportFailed,
+    BuildSucceeded {
+        task_id: task::Id,
+        builder: endpoint::Id,
+        collectables: Vec<Collectable>,
+    },
+    BuildFailed {
+        task_id: task::Id,
+        builder: endpoint::Id,
+        collectables: Vec<Collectable>,
+    },
+    ImportSucceeded {
+        task_id: task::Id,
+    },
+    ImportFailed {
+        task_id: task::Id,
+    },
     Timer(Instant),
 }
 
@@ -29,6 +42,8 @@ pub async fn run(mut manager: Manager) -> Result<(Sender, impl Future<Output = R
 
     let task = {
         let sender = sender.clone();
+
+        tokio::spawn(timer_task(sender.clone()));
 
         async move {
             while let Some(message) = receiver.recv().await {
@@ -51,7 +66,7 @@ pub async fn run(mut manager: Manager) -> Result<(Sender, impl Future<Output = R
     Ok((sender, task))
 }
 
-pub async fn timer_task(sender: Sender) -> Result<(), Infallible> {
+async fn timer_task(sender: Sender) -> Result<(), Infallible> {
     let mut interval = time::interval(TIMER_INTERVAL);
     interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
@@ -62,63 +77,101 @@ pub async fn timer_task(sender: Sender) -> Result<(), Infallible> {
 
 async fn handle_message(sender: &Sender, manager: &mut Manager, message: Message) -> Result<()> {
     match message {
-        Message::AllocateBuilds => allocate_builds(sender, manager).await,
-        Message::BuildSucceeded => build_succeeded().await,
-        Message::BuildFailed => build_failed().await,
-        Message::ImportSucceeded => import_succeeded().await,
-        Message::ImportFailed => import_failed().await,
+        Message::AllocateBuilds => allocate_builds(manager).await,
+        Message::BuildSucceeded {
+            task_id,
+            builder,
+            collectables,
+        } => build_succeeded(sender, manager, task_id, builder, collectables).await,
+        Message::BuildFailed {
+            task_id,
+            builder,
+            collectables,
+        } => build_failed(sender, manager, task_id, builder, collectables).await,
+        Message::ImportSucceeded { task_id } => import_succeeded(sender, manager, task_id).await,
+        Message::ImportFailed { task_id } => import_failed(sender, manager, task_id).await,
         Message::Timer(_) => timer(sender, manager).await,
     }
 }
 
 #[tracing::instrument(skip_all)]
-async fn allocate_builds(_sender: &Sender, manager: &mut Manager) -> Result<()> {
-    info!("Allocating builds");
+async fn allocate_builds(manager: &mut Manager) -> Result<()> {
+    debug!("Allocating builds");
+    manager.allocate_builds().await.context("allocate builds")
+}
 
-    let mut conn = manager.acquire().await.context("acquire db conn")?;
+#[tracing::instrument(skip_all)]
+async fn build_succeeded(
+    sender: &Sender,
+    manager: &mut Manager,
+    task_id: task::Id,
+    builder: endpoint::Id,
+    collectables: Vec<Collectable>,
+) -> Result<()> {
+    debug!("Build succeeded");
 
-    let projects = project::list(&mut conn).await.context("list projects")?;
+    let publishing_failed = manager
+        .build_succeeded(task_id, builder, collectables)
+        .await
+        .context("manager build succeeded")?;
+
+    // Lifecycle will not continue since task is now failed
+    // so drive forward new tasks
+    if publishing_failed {
+        let _ = sender.send(Message::AllocateBuilds);
+    }
+
+    Ok(())
+}
+
+#[tracing::instrument(skip_all)]
+async fn build_failed(
+    sender: &Sender,
+    manager: &mut Manager,
+    task_id: task::Id,
+    builder: endpoint::Id,
+    collectables: Vec<Collectable>,
+) -> Result<()> {
+    debug!("Build failed");
 
     manager
-        .queue
-        .recompute(&mut conn, &projects, &manager.repository_dbs)
+        .build_failed(task_id, builder, collectables)
         .await
-        .context("recompute queue")?;
+        .context("manager build failed")?;
+
+    let _ = sender.send(Message::AllocateBuilds);
 
     Ok(())
 }
 
 #[tracing::instrument(skip_all)]
-async fn build_succeeded() -> Result<()> {
-    info!("Build succeeded");
+async fn import_succeeded(sender: &Sender, manager: &mut Manager, task_id: task::Id) -> Result<()> {
+    debug!("Import succeeded");
+
+    manager
+        .import_succeeded(task_id)
+        .await
+        .context("manager import failed")?;
+
+    let _ = sender.send(Message::AllocateBuilds);
 
     Ok(())
 }
 
 #[tracing::instrument(skip_all)]
-async fn build_failed() -> Result<()> {
-    info!("Build failed");
+async fn import_failed(sender: &Sender, manager: &mut Manager, task_id: task::Id) -> Result<()> {
+    debug!("Import failed");
 
-    Ok(())
-}
+    manager.import_failed(task_id).await.context("manager import failed")?;
 
-#[tracing::instrument(skip_all)]
-async fn import_succeeded() -> Result<()> {
-    info!("Import succeeded");
-
-    Ok(())
-}
-
-#[tracing::instrument(skip_all)]
-async fn import_failed() -> Result<()> {
-    info!("Import failed");
+    let _ = sender.send(Message::AllocateBuilds);
 
     Ok(())
 }
 
 #[tracing::instrument(skip_all, fields(project, repository))]
 async fn timer(sender: &Sender, manager: &Manager) -> Result<()> {
-    info!("Timer triggered");
+    debug!("Timer triggered");
 
     let span = Span::current();
 

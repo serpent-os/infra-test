@@ -16,6 +16,7 @@ pub use self::task::Task;
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
 
+mod api;
 mod manager;
 mod profile;
 mod project;
@@ -55,8 +56,8 @@ async fn main() -> Result<()> {
     info!("summit listening on {host}:{port}");
 
     Server::new(Role::Hub, &config, &state)
+        .merge_api(api::service(state.clone(), worker_sender.clone()))
         .with_task("worker", worker_task)
-        .with_task("timer", worker::timer_task(worker_sender))
         .start((host, port))
         .await?;
 

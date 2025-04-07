@@ -1,19 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use color_eyre::eyre::{self, Context, OptionExt, Result};
 use moss::db::meta;
-use service::{State, database::Transaction};
+use service::{Collectable, Endpoint, State, database::Transaction, endpoint};
 use sqlx::{Sqlite, pool::PoolConnection};
 use tokio::task::spawn_blocking;
-use tracing::{Span, info};
+use tracing::{Span, info, warn};
 
 use crate::{Project, Queue, profile, project, repository, task};
 
 pub struct Manager {
     pub state: State,
-    pub queue: Queue,
-    pub profile_dbs: HashMap<profile::Id, meta::Database>,
-    pub repository_dbs: HashMap<repository::Id, meta::Database>,
+    queue: Queue,
+    profile_dbs: HashMap<profile::Id, meta::Database>,
+    repository_dbs: HashMap<repository::Id, meta::Database>,
 }
 
 impl Manager {
@@ -110,6 +110,177 @@ impl Manager {
 
     pub fn repository_db(&self, repo: &repository::Id) -> Result<&meta::Database> {
         self.repository_dbs.get(repo).ok_or_eyre("missing repository")
+    }
+
+    pub async fn allocate_builds(&mut self) -> Result<()> {
+        let mut conn = self.acquire().await.context("acquire db conn")?;
+
+        let projects = project::list(&mut conn).await.context("list projects")?;
+
+        self.queue
+            .recompute(&mut conn, &projects, &self.repository_dbs)
+            .await
+            .context("recompute queue")?;
+
+        let mut available = self.queue.available().collect::<VecDeque<_>>();
+        let mut next_task = available.pop_front();
+
+        let builders = Endpoint::list(&mut *conn)
+            .await
+            .context("list endpoints")?
+            .into_iter()
+            .filter(Endpoint::is_idle_builder);
+
+        // We will use a TX within each build to atomically
+        // update all the things together, so we don't need
+        // this connection anymore
+        drop(conn);
+
+        for mut builder in builders {
+            if let Some(task) = next_task {
+                match task::build(&self.state, &mut builder, task).await {
+                    Ok(_) => {
+                        next_task = available.pop_front();
+                    }
+                    Err(_) => {
+                        warn!(builder = %builder.id, "Failed to send build, trying next builder");
+                    }
+                }
+            } else {
+                // Nothing else to build
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn build_succeeded(
+        &mut self,
+        task_id: task::Id,
+        builder: endpoint::Id,
+        collectables: Vec<Collectable>,
+    ) -> Result<bool> {
+        let publishing_failed = task::build::succeeded(&self.state, task_id, builder, collectables)
+            .await
+            .context("set task as build succeeded")?;
+
+        if publishing_failed {
+            let mut tx = self.begin().await.context("begin db tx")?;
+
+            let projects = project::list(tx.as_mut()).await.context("list projects")?;
+
+            self.queue
+                .task_failed(&mut tx, task_id)
+                .await
+                .context("add queue blockers")?;
+
+            self.queue
+                .recompute(tx.as_mut(), &projects, &self.repository_dbs)
+                .await
+                .context("recompute queue")?;
+
+            tx.commit().await.context("commit db tx")?;
+        }
+
+        Ok(publishing_failed)
+    }
+
+    pub async fn build_failed(
+        &mut self,
+        task_id: task::Id,
+        builder: endpoint::Id,
+        collectables: Vec<Collectable>,
+    ) -> Result<()> {
+        task::build::failed(&self.state, task_id, builder, collectables)
+            .await
+            .context("set task as build failed")?;
+
+        let mut tx = self.begin().await.context("begin db tx")?;
+
+        let projects = project::list(tx.as_mut()).await.context("list projects")?;
+
+        self.queue
+            .task_failed(&mut tx, task_id)
+            .await
+            .context("add queue blockers")?;
+
+        self.queue
+            .recompute(tx.as_mut(), &projects, &self.repository_dbs)
+            .await
+            .context("recompute queue")?;
+
+        tx.commit().await.context("commit db tx")?;
+
+        Ok(())
+    }
+
+    pub async fn import_succeeded(&mut self, task_id: task::Id) -> Result<()> {
+        let mut tx = self.begin().await.context("begin db tx")?;
+
+        task::set_status(&mut tx, task_id, task::Status::Completed)
+            .await
+            .context("set task as import failed")?;
+
+        let projects = project::list(tx.as_mut()).await.context("list projects")?;
+
+        let task = task::query(tx.as_mut(), task::query::Params::default().id(task_id))
+            .await
+            .context("query task")?
+            .into_iter()
+            .next()
+            .ok_or_eyre("task is missing")?;
+
+        self.queue
+            .task_completed(&mut tx, task_id)
+            .await
+            .context("add queue blockers")?;
+
+        self.queue
+            .recompute(tx.as_mut(), &projects, &self.repository_dbs)
+            .await
+            .context("recompute queue")?;
+
+        tx.commit().await.context("commit db tx")?;
+
+        let profile = projects
+            .iter()
+            .find_map(|p| p.profiles.iter().find(|p| p.id == task.profile_id))
+            .ok_or_eyre("missing profile")?;
+        let profile_db = self
+            .profile_dbs
+            .get(&task.profile_id)
+            .ok_or_eyre("missing profile db")?
+            .clone();
+        profile::refresh(&self.state, profile, profile_db)
+            .await
+            .context("refresh profile")?;
+
+        Ok(())
+    }
+
+    pub async fn import_failed(&mut self, task_id: task::Id) -> Result<()> {
+        let mut tx = self.begin().await.context("begin db tx")?;
+
+        task::set_status(&mut tx, task_id, task::Status::Failed)
+            .await
+            .context("set task as import failed")?;
+
+        let projects = project::list(tx.as_mut()).await.context("list projects")?;
+
+        self.queue
+            .task_failed(&mut tx, task_id)
+            .await
+            .context("add queue blockers")?;
+
+        self.queue
+            .recompute(tx.as_mut(), &projects, &self.repository_dbs)
+            .await
+            .context("recompute queue")?;
+
+        tx.commit().await.context("commit db tx")?;
+
+        Ok(())
     }
 }
 

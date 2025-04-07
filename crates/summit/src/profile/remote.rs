@@ -1,14 +1,7 @@
 use http::Uri;
-use service::database::Transaction;
+use service::{Remote, database::Transaction};
 
 use crate::profile;
-
-#[derive(Debug, Clone)]
-pub struct Remote {
-    pub index_uri: Uri,
-    pub name: String,
-    pub priority: u64,
-}
 
 pub async fn create(
     tx: &mut Transaction,

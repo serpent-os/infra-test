@@ -1,13 +1,12 @@
 use derive_more::derive::{Display, From, Into};
 use http::Uri;
 use serde::{Deserialize, Serialize};
-use service::database::Transaction;
+use service::{Remote, database::Transaction};
 use sqlx::FromRow;
 
 use crate::project;
 
 pub use self::refresh::refresh;
-pub use self::remote::Remote;
 
 pub mod refresh;
 pub mod remote;

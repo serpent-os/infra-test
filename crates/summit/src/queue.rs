@@ -3,14 +3,17 @@ use std::collections::HashMap;
 use color_eyre::eyre::{self, Context, OptionExt, Result};
 use dag::Dag;
 use futures_util::{StreamExt, TryStreamExt, stream};
-use moss::{db::meta, package::Meta};
+use itertools::Itertools;
+use moss::db::meta;
+use service::database::Transaction;
 use sqlx::SqliteConnection;
 use tokio::task::spawn_blocking;
+use tracing::{debug, info, warn};
 
-use crate::{Profile, Project, Repository, Task, repository, task};
+use crate::{Project, repository, task};
 
 #[derive(Default)]
-pub struct Queue(Vec<Task>);
+pub struct Queue(Vec<task::Queued>);
 
 impl Queue {
     #[tracing::instrument(name = "recompute_queue", skip_all)]
@@ -20,7 +23,7 @@ impl Queue {
         projects: &[Project],
         repo_dbs: &HashMap<repository::Id, meta::Database>,
     ) -> Result<()> {
-        let open_tasks = task::list(conn, task::Status::open())
+        let open_tasks = task::query(conn, task::query::Params::default().statuses(task::Status::open()))
             .await
             .context("list open tasks")?;
 
@@ -49,14 +52,25 @@ impl Queue {
                     .context("join handle")?
                     .context("find meta in repo db for task")?;
 
+                let remotes = profile
+                    .remotes
+                    .iter()
+                    .sorted_by_key(|r| r.priority)
+                    .map(|r| &r.index_uri)
+                    .chain(Some(&profile.index_uri))
+                    .cloned()
+                    .collect();
+
                 Result::<_, eyre::Report>::Ok((
                     task.id,
-                    Mapper {
+                    task::Queued {
                         task,
-                        project,
-                        profile,
-                        repo,
                         meta,
+                        commit_ref: repo.commit_ref.clone().ok_or_eyre("missing repo commit ref")?,
+                        origin_uri: repo.origin_uri.clone(),
+                        index_uri: profile.index_uri.clone(),
+                        remotes,
+                        dependencies: vec![],
                     },
                 ))
             })
@@ -74,12 +88,7 @@ impl Queue {
                 .filter(|a| {
                     current.task.id != a.task.id
                         && current.task.arch == a.task.arch
-                        && (current.profile.index_uri == a.profile.index_uri
-                            || current
-                                .profile
-                                .remotes
-                                .iter()
-                                .any(|r| r.index_uri == a.profile.index_uri))
+                        && current.remotes.contains(&a.index_uri)
                 })
                 .collect::<Vec<_>>();
 
@@ -101,23 +110,94 @@ impl Queue {
             }
         }
 
-        let topo = dag
+        let mut topo = dag
             .topo()
-            .map(|id| &mapped_tasks.get(id).unwrap().task.build_id)
+            .map(|id| mapped_tasks.get(id).cloned().expect("dag populated from mapped tasks"))
             .collect::<Vec<_>>();
 
-        dbg!(&topo);
-        dbg!(topo.len());
-        dbg!(mapped_tasks.len());
+        for queued in topo.iter_mut() {
+            queued.dependencies = dag
+                .dfs(dag.get_index(&queued.task.id).expect("topo derived from dag"))
+                // DFS always starts on current node, skip it
+                .skip(1)
+                .cloned()
+                .collect();
+        }
+
+        self.0 = topo;
+
+        debug!(num_tasks = self.0.len(), "Queue recomputed");
 
         Ok(())
     }
-}
 
-struct Mapper<'a> {
-    task: Task,
-    project: &'a Project,
-    profile: &'a Profile,
-    repo: &'a Repository,
-    meta: Meta,
+    #[tracing::instrument(name = "queue_task_failed", skip_all, fields(%task))]
+    pub async fn task_failed(&mut self, tx: &mut Transaction, task: task::Id) -> Result<()> {
+        let idx = self
+            .0
+            .iter()
+            .position(|queued| queued.task.id == task)
+            .ok_or_eyre("task is missing")?;
+        let removed = self.0.remove(idx);
+
+        let blocker_id = format!(
+            "{}_{}@{}/{}",
+            removed.meta.source_id, removed.task.arch, removed.task.project_id, removed.task.repository_id
+        );
+
+        let mut num_blocked = 0;
+
+        for blocked in self.0.iter().filter(|queued| queued.dependencies.contains(&task)) {
+            task::block(tx, blocked.task.id, &blocker_id)
+                .await
+                .context("add task blocker")?;
+
+            num_blocked += 1;
+
+            warn!(task = %blocked.task.id, blocker = %removed.task.id, "Task blocked");
+        }
+
+        if num_blocked == 0 {
+            debug!("No dependents to block");
+        }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(name = "queue_task_completed", skip_all, fields(%task))]
+    pub async fn task_completed(&mut self, tx: &mut Transaction, task: task::Id) -> Result<()> {
+        let idx = self
+            .0
+            .iter()
+            .position(|queued| queued.task.id == task)
+            .ok_or_eyre("task is missing")?;
+        let removed = self.0.remove(idx);
+
+        let blocker_id = format!(
+            "{}_{}@{}/{}",
+            removed.meta.source_id, removed.task.arch, removed.task.project_id, removed.task.repository_id
+        );
+
+        for blocked in self.0.iter().filter(|queued| queued.dependencies.contains(&task)) {
+            let remaining = task::unblock(tx, blocked.task.id, &blocker_id)
+                .await
+                .context("add task blocker")?;
+
+            if remaining > 0 {
+                info!(task = %blocked.task.id, "Task still blocked");
+            } else {
+                info!(task = %blocked.task.id, "Task unblocked");
+            }
+
+            warn!(task = %blocked.task.id, blocker = %removed.task.id, "Task blocked");
+        }
+
+        Ok(())
+    }
+
+    pub fn available(&self) -> impl Iterator<Item = &task::Queued> {
+        self.0
+            .iter()
+            .filter(|queued| queued.dependencies.is_empty() && matches!(queued.task.status, task::Status::New))
+    }
 }

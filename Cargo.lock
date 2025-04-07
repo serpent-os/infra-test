@@ -3147,6 +3147,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "http",
+ "http-serde",
  "serde",
  "strum",
  "thiserror 2.0.12",
@@ -3588,6 +3589,7 @@ dependencies = [
  "hex",
  "http",
  "http-serde",
+ "itertools",
  "moss",
  "serde",
  "service",
@@ -3600,6 +3602,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

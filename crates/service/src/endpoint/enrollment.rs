@@ -361,6 +361,13 @@ impl Sent {
         info!(username, "Created a new service account");
 
         let endpoint = self.endpoint;
+        let kind = match remote.role {
+            Role::Builder => endpoint::Kind::Builder(endpoint::builder::Extension {
+                work_status: endpoint::builder::WorkStatus::Idle,
+            }),
+            Role::RepositoryManager => endpoint::Kind::RepositoryManager,
+            Role::Hub => endpoint::Kind::Hub,
+        };
 
         Endpoint {
             id: endpoint,
@@ -368,7 +375,7 @@ impl Sent {
             status: endpoint::Status::Operational,
             error: None,
             account,
-            kind: endpoint::Kind::Hub,
+            kind,
         }
         .save(&mut tx)
         .await

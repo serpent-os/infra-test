@@ -1,7 +1,7 @@
 use derive_more::derive::{Display, From, Into};
 use http::Uri;
 use serde::{Deserialize, Serialize};
-use service::database::Transaction;
+use service::{Remote, database::Transaction};
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::{Profile, Repository, profile, repository};
@@ -166,7 +166,7 @@ pub async fn list(conn: &mut SqliteConnection) -> Result<Vec<Project>, sqlx::Err
             .iter_mut()
             .find_map(|p| p.profiles.iter_mut().find(|p| p.id == row.profile_id))
         {
-            profile.remotes.push(profile::Remote {
+            profile.remotes.push(Remote {
                 index_uri: row.index_uri,
                 name: row.name,
                 priority: row.priority as u64,
