@@ -188,8 +188,6 @@ impl Queue {
             } else {
                 info!(task = %blocked.task.id, "Task unblocked");
             }
-
-            warn!(task = %blocked.task.id, blocker = %removed.task.id, "Task blocked");
         }
 
         Ok(())
