@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use color_eyre::eyre::{Context, OptionExt, Result};
+use color_eyre::eyre::{Context, OptionExt, Report, Result};
 use http::Uri;
 use itertools::Itertools;
 use service::{Collectable, Remote, collectable, git};
@@ -31,11 +31,19 @@ pub async fn build(request: PackageBuild, endpoint: Endpoint, state: State, conf
     let task_id = request.build_id;
 
     let status = match run(request, endpoint, state, config).await {
-        Ok(collectables) => {
+        Ok((None, collectables)) => {
             info!("Build succeeded");
 
             client
                 .send::<api::v1::summit::BuildSucceeded>(&api::v1::summit::BuildBody { task_id, collectables })
+                .await
+        }
+        Ok((Some(e), collectables)) => {
+            let error = error::chain(e.as_ref() as &dyn std::error::Error);
+            error!(%error, "Build failed");
+
+            client
+                .send::<api::v1::summit::BuildFailed>(&api::v1::summit::BuildBody { task_id, collectables })
                 .await
         }
         Err(e) => {
@@ -57,7 +65,12 @@ pub async fn build(request: PackageBuild, endpoint: Endpoint, state: State, conf
     }
 }
 
-async fn run(request: PackageBuild, _endpoint: Endpoint, state: State, config: Config) -> Result<Vec<Collectable>> {
+async fn run(
+    request: PackageBuild,
+    _endpoint: Endpoint,
+    state: State,
+    config: Config,
+) -> Result<(Option<Report>, Vec<Collectable>)> {
     let uri = request.uri.parse::<Uri>().context("invalid upstream URI")?;
 
     let mirror_dir = state.cache_dir.join(
@@ -100,9 +113,9 @@ async fn run(request: PackageBuild, _endpoint: Endpoint, state: State, config: C
         .await
         .context("create boulder config")?;
 
-    build_recipe(&work_dir, &asset_dir, &worktree_dir, &request.relative_path, &log_file)
+    let error = build_recipe(&work_dir, &asset_dir, &worktree_dir, &request.relative_path, &log_file)
         .await
-        .context("build recipe")?;
+        .err();
 
     tokio::task::spawn_blocking(move || compress_file(&log_file))
         .await
@@ -118,7 +131,7 @@ async fn run(request: PackageBuild, _endpoint: Endpoint, state: State, config: C
         .await
         .context("remove worktree")?;
 
-    Ok(collectables)
+    Ok((error, collectables))
 }
 
 async fn ensure_dir_exists(path: &Path) -> Result<()> {
