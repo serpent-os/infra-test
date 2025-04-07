@@ -1,3 +1,4 @@
 /target
 crates/**/.privkey
 *.db
+test/out/
