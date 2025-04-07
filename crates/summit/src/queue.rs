@@ -115,8 +115,12 @@ impl Queue {
             .map(|id| mapped_tasks.get(id).cloned().expect("dag populated from mapped tasks"))
             .collect::<Vec<_>>();
 
+        // Transpose the graph so we can search for
+        // all dependencies of a package
+        let transposed = dag.transpose();
+
         for queued in topo.iter_mut() {
-            queued.dependencies = dag
+            queued.dependencies = transposed
                 .dfs(dag.get_index(&queued.task.id).expect("topo derived from dag"))
                 // DFS always starts on current node, skip it
                 .skip(1)
