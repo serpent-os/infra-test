@@ -7,7 +7,7 @@ use tokio::{
 };
 use tracing::{Span, error, info};
 
-use crate::{Manager, repository, task};
+use crate::{Manager, project, repository, task};
 
 const TIMER_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -24,22 +24,26 @@ pub enum Message {
     Timer(Instant),
 }
 
-pub async fn run(manager: Manager) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
+pub async fn run(mut manager: Manager) -> Result<(Sender, impl Future<Output = Result<(), Infallible>> + use<>)> {
     let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
 
-    let task = async move {
-        while let Some(message) = receiver.recv().await {
-            let kind = message.to_string();
+    let task = {
+        let sender = sender.clone();
 
-            if let Err(e) = handle_message(&manager, message).await {
-                let error = service::error::chain(e.as_ref() as &dyn std::error::Error);
-                error!(message = kind, %error, "Error handling message");
+        async move {
+            while let Some(message) = receiver.recv().await {
+                let kind = message.to_string();
+
+                if let Err(e) = handle_message(&sender, &mut manager, message).await {
+                    let error = service::error::chain(e.as_ref() as &dyn std::error::Error);
+                    error!(message = kind, %error, "Error handling message");
+                }
             }
+
+            info!("Worker exiting");
+
+            Ok(())
         }
-
-        info!("Worker exiting");
-
-        Ok(())
     };
 
     let _ = sender.send(Message::AllocateBuilds);
@@ -56,20 +60,30 @@ pub async fn timer_task(sender: Sender) -> Result<(), Infallible> {
     }
 }
 
-async fn handle_message(manager: &Manager, message: Message) -> Result<()> {
+async fn handle_message(sender: &Sender, manager: &mut Manager, message: Message) -> Result<()> {
     match message {
-        Message::AllocateBuilds => allocate_builds().await,
+        Message::AllocateBuilds => allocate_builds(sender, manager).await,
         Message::BuildSucceeded => build_succeeded().await,
         Message::BuildFailed => build_failed().await,
         Message::ImportSucceeded => import_succeeded().await,
         Message::ImportFailed => import_failed().await,
-        Message::Timer(_) => timer(manager).await,
+        Message::Timer(_) => timer(sender, manager).await,
     }
 }
 
 #[tracing::instrument(skip_all)]
-async fn allocate_builds() -> Result<()> {
+async fn allocate_builds(_sender: &Sender, manager: &mut Manager) -> Result<()> {
     info!("Allocating builds");
+
+    let mut conn = manager.acquire().await.context("acquire db conn")?;
+
+    let projects = project::list(&mut conn).await.context("list projects")?;
+
+    manager
+        .queue
+        .recompute(&mut conn, &projects, &manager.repository_dbs)
+        .await
+        .context("recompute queue")?;
 
     Ok(())
 }
@@ -103,7 +117,7 @@ async fn import_failed() -> Result<()> {
 }
 
 #[tracing::instrument(skip_all, fields(project, repository))]
-async fn timer(manager: &Manager) -> Result<()> {
+async fn timer(sender: &Sender, manager: &Manager) -> Result<()> {
     info!("Timer triggered");
 
     let span = Span::current();
@@ -138,7 +152,9 @@ async fn timer(manager: &Manager) -> Result<()> {
         }
     }
 
-    if have_changes {}
+    if have_changes {
+        let _ = sender.send(Message::AllocateBuilds);
+    }
 
     Ok(())
 }

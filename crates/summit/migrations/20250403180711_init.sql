@@ -63,3 +63,10 @@ CREATE TABLE IF NOT EXISTS task (
     FOREIGN KEY(profile_id) REFERENCES profile(profile_id) ON DELETE CASCADE,
     FOREIGN KEY(repository_id) REFERENCES repository(repository_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS task_blockers (
+    task_id INT NOT NULL,
+    blocker TEXT NOT NULL,
+    PRIMARY KEY (task_id, blocker),
+    FOREIGN KEY(task_id) REFERENCES task(task_id) ON DELETE CASCADE
+);

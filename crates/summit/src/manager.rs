@@ -4,16 +4,16 @@ use color_eyre::eyre::{self, Context, OptionExt, Result};
 use moss::db::meta;
 use service::{State, database::Transaction};
 use sqlx::{Sqlite, pool::PoolConnection};
-use tokio::task;
+use tokio::task::spawn_blocking;
 use tracing::{Span, info};
 
-use crate::{Project, Queue, profile, project, repository};
+use crate::{Project, Queue, profile, project, repository, task};
 
 pub struct Manager {
     pub state: State,
     pub queue: Queue,
-    profile_dbs: HashMap<profile::Id, meta::Database>,
-    repository_dbs: HashMap<repository::Id, meta::Database>,
+    pub profile_dbs: HashMap<profile::Id, meta::Database>,
+    pub repository_dbs: HashMap<repository::Id, meta::Database>,
 }
 
 impl Manager {
@@ -24,7 +24,7 @@ impl Manager {
         let span = Span::current();
 
         // Moss DB implementations are blocking
-        let (state, projects, profile_dbs, repository_dbs) = task::spawn_blocking(move || {
+        let (state, projects, profile_dbs, repository_dbs) = spawn_blocking(move || {
             let _enter = span.enter();
 
             let profile_dbs = projects
@@ -54,19 +54,42 @@ impl Manager {
         .await
         .context("join handle")??;
 
-        // Refresh all profiles
-        for profile in projects.iter().flat_map(|p| &p.profiles) {
-            let db = profile_dbs.get(&profile.id).ok_or_eyre("missing profile db").cloned()?;
-
-            profile::refresh(&state, profile, db).await.context("refresh profile")?;
-        }
-
-        Ok(Self {
+        let mut manager = Self {
             state,
             queue: Queue::default(),
             profile_dbs,
             repository_dbs,
-        })
+        };
+
+        let mut conn = manager.acquire().await.context("acquire db conn")?;
+
+        for project in &projects {
+            // Refresh all profiles
+            for profile in &project.profiles {
+                let db = manager.profile_db(&profile.id).cloned()?;
+
+                profile::refresh(&manager.state, profile, db)
+                    .await
+                    .context("refresh profile")?;
+            }
+
+            // Add all missing tasks
+            for repo in &project.repositories {
+                let db = manager.repository_db(&repo.id)?;
+
+                task::create_missing(&mut conn, &manager, project, repo, db)
+                    .await
+                    .context("create missing tasks")?;
+            }
+        }
+
+        manager
+            .queue
+            .recompute(&mut conn, &projects, &manager.repository_dbs)
+            .await
+            .context("recompute queue")?;
+
+        Ok(manager)
     }
 
     pub async fn begin(&self) -> Result<Transaction> {

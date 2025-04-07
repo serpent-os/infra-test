@@ -26,7 +26,7 @@ pub async fn reindex(
     let clone_dir = repo_dir.join("clone");
     let work_dir = repo_dir.join("work");
 
-    checkout_commit(&mut repo, &clone_dir, &work_dir)
+    checkout_commit(&repo, &clone_dir, &work_dir)
         .await
         .context("checkout commit")?;
 
@@ -124,9 +124,11 @@ fn install_manifest(db: &meta::Database, work_dir: &Path, manifest: &Path) -> Re
 
     let hash = compute_hash(&recipe_path).context("compute sha256 of recipe")?;
 
-    let file = fs::File::open(manifest).context("open manifest reader")?;
+    let recipe = stone_recipe::from_str(&fs::read_to_string(&recipe_path).context("read recipe file")?)
+        .context("parse recipe file")?;
+    let manifest = fs::File::open(manifest).context("open manifest reader")?;
 
-    let mut reader = stone::read(&file).context("read stone header")?;
+    let mut reader = stone::read(&manifest).context("read stone header")?;
 
     let payloads = reader
         .payloads()
@@ -134,14 +136,31 @@ fn install_manifest(db: &meta::Database, work_dir: &Path, manifest: &Path) -> Re
         .collect::<Result<Vec<_>, _>>()
         .context("read stone payloads")?;
 
-    let meta_payload = payloads
-        .iter()
-        .find_map(stone::read::PayloadKind::meta)
-        .ok_or_eyre("missing meta payload")?;
+    let mut meta_payloads = payloads.iter().filter_map(stone::read::PayloadKind::meta);
 
-    let mut meta = Meta::from_stone_payload(&meta_payload.body).context("convert meta payload to metadata")?;
+    // Seed metadata from the first payload
+    let first = meta_payloads.next().ok_or_eyre("missing meta payload in manifest")?;
+
+    let mut meta = Meta::from_stone_payload(&first.body).context("convert meta payload to metadata")?;
+
+    // Overwrite from root pacakge since we don't know if root package
+    // was first meta payload that seeded this
+    meta.summary = recipe.package.summary.clone().unwrap_or_default();
+    meta.description = recipe.package.description.clone().unwrap_or_default();
+    meta.homepage = recipe.source.homepage.clone();
+    // Source id should be the same for all packages / use as the name
+    meta.name = meta.source_id.clone().into();
     meta.hash = Some(hash);
     meta.uri = Some(relative_path.display().to_string());
+
+    // Extend deps & such from addtl. packages
+    for payload in meta_payloads {
+        let addtl = Meta::from_stone_payload(&payload.body).context("convert meta payload to metadata")?;
+
+        meta.licenses.extend(addtl.licenses);
+        meta.dependencies.extend(addtl.dependencies);
+        meta.providers.extend(addtl.providers);
+    }
 
     db.add(meta.id().into(), meta).context("add meta to db")?;
 

@@ -8,8 +8,10 @@ members = [
 edition = "2024"
 
 [workspace.dependencies]
+dag = { git = "https://github.com/serpent-os/tools.git" }
 moss = { git = "https://github.com/serpent-os/tools.git" }
 stone = { git = "https://github.com/serpent-os/tools.git" }
+stone_recipe = { git = "https://github.com/serpent-os/tools.git" }
 
 axum = "0.8.0"
 base64 = "0.22.1"

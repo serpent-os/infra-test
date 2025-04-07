@@ -1,17 +1,24 @@
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
 use derive_more::derive::{Display, From, Into};
-use moss::{db::meta, dependency, package::Meta};
+use moss::{
+    db::meta,
+    dependency,
+    package::{self, Meta},
+};
 use serde::{Deserialize, Serialize};
 use sqlx::{SqliteConnection, prelude::FromRow};
+use strum::IntoEnumIterator;
 use tokio::task;
 use tracing::{debug, warn};
 
 use crate::{Manager, Project, Repository, profile, project, repository};
 
 pub use self::create::create;
+pub use self::list::list;
 
 pub mod create;
+pub mod list;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
@@ -23,7 +30,7 @@ pub struct Task {
     pub profile_id: profile::Id,
     pub repository_id: repository::Id,
     pub slug: String,
-    pub package_id: String,
+    pub package_id: package::Id,
     pub arch: String,
     pub build_id: String,
     pub description: String,
@@ -32,12 +39,13 @@ pub struct Task {
     pub status: Status,
     pub allocated_builder: Option<String>,
     pub log_path: Option<String>,
+    pub blocked_by: Vec<String>,
     pub started: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub ended: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString, strum::EnumIter)]
 #[strum(serialize_all = "kebab-case")]
 pub enum Status {
     /// Freshly created task
@@ -54,6 +62,16 @@ pub enum Status {
     /// criteria have been met, i.e. the dependent that
     /// caused the failure has been fixed.
     Blocked,
+}
+
+impl Status {
+    pub fn is_open(&self) -> bool {
+        !matches!(self, Status::Completed | Status::Failed)
+    }
+
+    pub fn open() -> impl Iterator<Item = Status> {
+        Status::iter().filter(Status::is_open)
+    }
 }
 
 #[tracing::instrument(name = "create_missing_tasks", skip_all)]
