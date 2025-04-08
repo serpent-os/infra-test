@@ -8,10 +8,6 @@ help:
 docker-build target profile:
 	@docker build . -t serpentos/{{target}}:{{profile}} --target {{target}} --build-arg RUST_PROFILE={{profile}}
 
-[private]
-docker-build-legacy target:
-	@docker build . -t serpentos/{{target}}:legacy --target {{target}} -f test/legacy/Dockerfile
-
 # Build docker containers
 build profile="dev": (docker-build "summit" profile) (docker-build "avalanche" profile) (docker-build "vessel" profile)
 
@@ -28,13 +24,10 @@ _up profile *ARGS: (build profile)
 logs *ARGS:
 	docker compose logs --follow {{ARGS}}
 
+# Restart docker containers
+restart *ARGS:
+	docker compose restart {{ARGS}}
+
 # Bring down docker containers
 down *ARGS:
 	docker compose down -v {{ARGS}}
-
-# Bring up test environment and bootstrap
-bootstrap: up
-	#!/usr/bin/env bash
-	./test/legacy/bootstrap.sh
-	docker compose logs -f
-	docker compose down -v
