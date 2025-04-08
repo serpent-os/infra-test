@@ -22,7 +22,9 @@ up *ARGS: (_up "dev" ARGS)
 up-release *ARGS: (_up "release" ARGS)
 
 _up profile *ARGS: (build profile)
-	RUST_PROFILE={{profile}} docker compose up --wait {{ARGS}}
+    # Containers can't access the internet w/o br_netfilter loaded.
+    # Note that the modprobe invocatio is a no-op if br_netfilter is already loaded.
+    ( sudo modprobe br_netfilter || true ) && RUST_PROFILE={{profile}} docker compose up --wait {{ARGS}}
 
 # Follow logs of docker containers
 logs *ARGS:
