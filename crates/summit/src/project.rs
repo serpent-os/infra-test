@@ -90,6 +90,7 @@ pub async fn list(conn: &mut SqliteConnection) -> Result<Vec<Project>, sqlx::Err
         commit_ref: Option<String>,
         #[sqlx(try_from = "String")]
         origin_uri: Uri,
+        branch: Option<String>,
         #[sqlx(try_from = "&'a str")]
         status: repository::Status,
         #[sqlx(try_from = "i64")]
@@ -183,6 +184,7 @@ pub async fn list(conn: &mut SqliteConnection) -> Result<Vec<Project>, sqlx::Err
           description,
           commit_ref,
           origin_uri,
+          branch,
           status,
           project_id
         FROM
@@ -200,6 +202,7 @@ pub async fn list(conn: &mut SqliteConnection) -> Result<Vec<Project>, sqlx::Err
                 description: row.description,
                 commit_ref: row.commit_ref,
                 origin_uri: row.origin_uri,
+                branch: row.branch,
                 status: row.status,
             });
         }

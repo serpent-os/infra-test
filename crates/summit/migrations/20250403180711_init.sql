@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS repository (
     description TEXT,
     commit_ref TEXT,
     origin_uri TEXT NOT NULL,
+    branch TEXT,
     status TEXT NOT NULL,
     project_id INT NOT NULL,
     UNIQUE(project_id, name),

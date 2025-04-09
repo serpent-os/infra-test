@@ -58,7 +58,9 @@ async fn clone_git(conn: &mut SqliteConnection, state: &State, repo: &mut Reposi
         .await
         .context("set status to cloning")?;
 
-    latest_commit(&clone_dir).await.context("get latest commit")
+    latest_commit(&clone_dir, repo.branch.as_deref())
+        .await
+        .context("get latest commit")
 }
 
 async fn update_git(conn: &mut SqliteConnection, state: &State, repo: &mut Repository) -> Result<String> {
@@ -82,9 +84,11 @@ async fn update_git(conn: &mut SqliteConnection, state: &State, repo: &mut Repos
         .await
         .context("set status to cloning")?;
 
-    latest_commit(&clone_dir).await.context("get latest commit")
+    latest_commit(&clone_dir, repo.branch.as_deref())
+        .await
+        .context("get latest commit")
 }
 
-async fn latest_commit(path: &Path) -> Result<String> {
-    Ok(git::rev_parse(path, "HEAD").await?)
+async fn latest_commit(path: &Path, branch: Option<&str>) -> Result<String> {
+    Ok(git::rev_parse(path, branch.unwrap_or("HEAD")).await?)
 }

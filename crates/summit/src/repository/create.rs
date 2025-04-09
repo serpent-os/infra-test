@@ -11,6 +11,7 @@ pub async fn create(
     name: String,
     summary: String,
     origin_uri: Uri,
+    branch: Option<String>,
 ) -> Result<Repository, sqlx::Error> {
     let (id,): (i64,) = sqlx::query_as(
         "
@@ -19,16 +20,18 @@ pub async fn create(
           name,
           summary,
           origin_uri,
+          branch,
           status,
           project_id
         )
-        VALUES (?,?,?,?,?)
+        VALUES (?,?,?,?,?,?)
         RETURNING repository_id;
         ",
     )
     .bind(&name)
     .bind(&summary)
     .bind(origin_uri.to_string())
+    .bind(branch.as_deref())
     .bind(Status::Fresh.to_string())
     .bind(i64::from(project))
     .fetch_one(tx.as_mut())
@@ -41,6 +44,7 @@ pub async fn create(
         description: None,
         commit_ref: None,
         origin_uri,
+        branch,
         status: Status::Fresh,
     })
 }

@@ -22,6 +22,7 @@ pub struct Repository {
     pub description: Option<String>,
     pub commit_ref: Option<String>,
     pub origin_uri: Uri,
+    pub branch: Option<String>,
     pub status: Status,
 }
 

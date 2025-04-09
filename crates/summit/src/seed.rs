@@ -100,7 +100,7 @@ async fn seed_repository(tx: &mut Transaction, project: &crate::Project, seed: R
     if project.repositories.iter().any(|p| p.name == seed.name) {
         debug!("Repository already exists");
     } else {
-        repository::create(tx, project.id, seed.name, seed.summary, seed.uri)
+        repository::create(tx, project.id, seed.name, seed.summary, seed.uri, seed.branch)
             .await
             .context("create repository")?;
 
@@ -151,4 +151,5 @@ pub struct Repository {
     pub summary: String,
     #[serde(with = "http_serde::uri")]
     pub uri: Uri,
+    pub branch: Option<String>,
 }
