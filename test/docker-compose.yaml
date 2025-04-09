@@ -7,6 +7,8 @@ services:
       - vessel-state:/vessel
       - summit-state:/summit
       - ./Caddyfile:/etc/caddy/Caddyfile
+    networks:
+      infra-test:
   summit:
     image: serpentos/summit:${RUST_PROFILE:-dev}
     volumes:
@@ -21,6 +23,8 @@ services:
         condition: service_started
       caddy:
         condition: service_started
+    networks:
+      infra-test:
   vessel:
     image: serpentos/vessel:${RUST_PROFILE:-dev}
     ports:
@@ -33,6 +37,8 @@ services:
     depends_on:
       caddy:
         condition: service_started
+    networks:
+      infra-test:
   avalanche:
     image: serpentos/avalanche:${RUST_PROFILE:-dev}
     ports:
@@ -42,8 +48,13 @@ services:
       - avalanche-state:/app/state
       - ./avalanche/.privkey:/app/state/.privkey
       - ./avalanche/config.toml:/app/config.toml
+    networks:
+      infra-test:
 
 volumes:
   summit-state:
   vessel-state:
   avalanche-state:
+
+networks:
+  infra-test:
