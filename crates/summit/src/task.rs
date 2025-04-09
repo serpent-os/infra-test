@@ -128,11 +128,9 @@ pub async fn create_missing(
                 let slug = || format!("~/{}/{}/{}", project.slug, repo.name, meta.name);
                 let version = |meta: &Meta| format!("{}-{}", meta.version_identifier, meta.source_release);
 
-                let latest = corresponding.iter().max_by(|(_, a), (_, b)| {
-                    a.version_identifier
-                        .cmp(&b.version_identifier)
-                        .then(a.source_release.cmp(&b.source_release))
-                });
+                let latest = corresponding
+                    .iter()
+                    .max_by(|(_, a), (_, b)| a.source_release.cmp(&b.source_release));
 
                 if let Some((_, published)) = latest {
                     if published.source_release >= meta.source_release {
