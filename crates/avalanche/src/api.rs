@@ -1,8 +1,8 @@
 use std::sync::atomic::{self, AtomicBool};
 
 use service::{Endpoint, State, api, database, endpoint};
-use thiserror::Error;
-use tracing::{error, info};
+use snafu::{ResultExt, Snafu, ensure};
+use tracing::info;
 
 use crate::Config;
 
@@ -34,16 +34,23 @@ async fn build(request: api::Request<api::v1::avalanche::Build>, context: Contex
         .payload
         .sub
         .parse::<endpoint::Id>()
-        .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(context.state.service_db.acquire().await?.as_mut(), endpoint_id)
-        .await
-        .map_err(Error::LoadEndpoint)?;
+        .context(InvalidEndpointSnafu)?;
+    let endpoint = Endpoint::get(
+        context
+            .state
+            .service_db
+            .acquire()
+            .await
+            .context(DatabaseSnafu)?
+            .as_mut(),
+        endpoint_id,
+    )
+    .await
+    .context(LoadEndpointSnafu)?;
 
     let build = request.body.request;
 
-    if build.remotes.is_empty() {
-        return Err(Error::MissingRemotes);
-    }
+    ensure!(!build.remotes.is_empty(), MissingRemotesSnafu);
 
     info!(
         endpoint = %endpoint.id,
@@ -67,34 +74,34 @@ async fn build(request: api::Request<api::v1::avalanche::Build>, context: Contex
     Ok(())
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Snafu)]
 pub enum Error {
     /// Required token is missing from the request
-    #[error("Token missing from request")]
+    #[snafu(display("Token missing from request"))]
     MissingRequestToken,
     /// Remotes missing from request
-    #[error("Missing remotes")]
+    #[snafu(display("Missing remotes"))]
     MissingRemotes,
     /// Another build is already in progress
-    #[error("Another build is already in progress")]
+    #[snafu(display("Another build is already in progress"))]
     BuildInProgress,
     /// Endpoint (UUIDv4) cannot be parsed from string
-    #[error("invalid endpoint")]
-    InvalidEndpoint(#[source] uuid::Error),
+    #[snafu(display("Invalid endpoint"))]
+    InvalidEndpoint { source: uuid::Error },
     /// Failed to load endpoint from DB
-    #[error("load endpoint")]
-    LoadEndpoint(#[source] database::Error),
+    #[snafu(display("Failed to load endpoint"))]
+    LoadEndpoint { source: database::Error },
     /// Database error
-    #[error("database")]
-    Database(#[from] database::Error),
+    #[snafu(display("Database error"))]
+    Database { source: database::Error },
 }
 
 impl From<&Error> for http::StatusCode {
     fn from(error: &Error) -> Self {
         match error {
             Error::MissingRequestToken => http::StatusCode::UNAUTHORIZED,
-            Error::MissingRemotes | Error::InvalidEndpoint(_) => http::StatusCode::BAD_REQUEST,
-            Error::LoadEndpoint(_) | Error::Database(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Error::MissingRemotes | Error::InvalidEndpoint { .. } => http::StatusCode::BAD_REQUEST,
+            Error::LoadEndpoint { .. } | Error::Database { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::BuildInProgress => http::StatusCode::SERVICE_UNAVAILABLE,
         }
     }
