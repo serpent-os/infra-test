@@ -189,7 +189,7 @@ impl TryFrom<u8> for Kind {
 
 /// Unknown [`Kind`] from [`u8`]
 #[derive(Debug, Error)]
-#[error("Unkown account kind: {0}")]
+#[error("Unknown account kind: {0}")]
 pub struct UnknownKind(u8);
 
 /// [`Account`] bearer token provisioned for the account after authentication

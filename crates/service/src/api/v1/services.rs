@@ -103,7 +103,7 @@ async fn enroll(request: api::Request<Enroll>, state: State) -> Result<(), Error
 
     debug!(%endpoint, %account, "Generated endpoint & account IDs for enrollment request");
 
-    let recieved = enrollment::Received {
+    let received = enrollment::Received {
         endpoint,
         account,
         remote: enrollment::Remote {
@@ -121,7 +121,7 @@ async fn enroll(request: api::Request<Enroll>, state: State) -> Result<(), Error
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        if let Err(e) = recieved.accept(&state.db, state.issuer.clone()).await {
+        if let Err(e) = received.accept(&state.db, state.issuer.clone()).await {
             error!(error=%error::chain(e), "Auto accept failed")
         };
     });

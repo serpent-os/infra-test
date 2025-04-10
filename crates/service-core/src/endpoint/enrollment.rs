@@ -8,7 +8,7 @@ use crate::Role;
 pub struct Request {
     /// The issuer of the request
     pub issuer: Issuer,
-    /// The issueing token assigned to the service
+    /// The issuing token assigned to the service
     pub issue_token: String,
     /// The role assigned to the service
     pub role: Role,
