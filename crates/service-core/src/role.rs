@@ -48,5 +48,5 @@ impl TryFrom<u8> for Role {
 
 /// Unknown [`Role`] from [`u8`]
 #[derive(Debug, Error)]
-#[error("Unkown role: {0}")]
+#[error("Unknown role: {0}")]
 pub struct UnknownRole(u8);
