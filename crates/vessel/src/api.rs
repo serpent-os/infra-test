@@ -1,5 +1,5 @@
 use service::{Database, Endpoint, api, collectable, database, endpoint};
-use thiserror::Error;
+use snafu::{ResultExt, Snafu};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -32,10 +32,10 @@ async fn import_packages(request: api::Request<api::v1::vessel::Build>, state: S
         .payload
         .sub
         .parse::<endpoint::Id>()
-        .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(state.db.acquire().await?.as_mut(), endpoint_id)
+        .context(InvalidEndpointSnafu)?;
+    let endpoint = Endpoint::get(state.db.acquire().await.context(DatabaseSnafu)?.as_mut(), endpoint_id)
         .await
-        .map_err(Error::LoadEndpoint)?;
+        .context(LoadEndpointSnafu)?;
 
     let body = request.body;
 
@@ -48,7 +48,8 @@ async fn import_packages(request: api::Request<api::v1::vessel::Build>, state: S
                 sha256sum: c.sha256sum,
             }))
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()
+        .context(InvalidUrlSnafu)?;
 
     if packages.is_empty() {
         warn!(endpoint = %endpoint.id, "No packages to import");
@@ -68,39 +69,41 @@ async fn import_packages(request: api::Request<api::v1::vessel::Build>, state: S
             endpoint,
             packages,
         })
-        .map_err(Error::SendWorker)?;
+        .context(SendWorkerSnafu)?;
 
     Ok(())
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Snafu)]
 pub enum Error {
     /// Required token is missing from the request
-    #[error("Token missing from request")]
+    #[snafu(display("Token missing from request"))]
     MissingRequestToken,
     /// Endpoint (UUIDv4) cannot be parsed from string
-    #[error("invalid endpoint")]
-    InvalidEndpoint(#[source] uuid::Error),
+    #[snafu(display("Invalid endpoint"))]
+    InvalidEndpoint { source: uuid::Error },
     /// Url cannot be parsed from string
-    #[error("invalid url")]
-    InvalidUrl(#[from] url::ParseError),
+    #[snafu(display("Invalid url"))]
+    InvalidUrl { source: url::ParseError },
     /// Failed to load endpoint from DB
-    #[error("load endpoint")]
-    LoadEndpoint(#[source] database::Error),
+    #[snafu(display("Failed to load endpoint"))]
+    LoadEndpoint { source: database::Error },
     /// Failed to send task to worker
-    #[error("send task to worker")]
-    SendWorker(#[source] mpsc::error::SendError<worker::Message>),
+    #[snafu(display("Failed to send task to worker"))]
+    SendWorker {
+        source: mpsc::error::SendError<worker::Message>,
+    },
     /// Database error
-    #[error("database")]
-    Database(#[from] database::Error),
+    #[snafu(display("Database error"))]
+    Database { source: database::Error },
 }
 
 impl From<&Error> for http::StatusCode {
     fn from(error: &Error) -> Self {
         match error {
             Error::MissingRequestToken => http::StatusCode::UNAUTHORIZED,
-            Error::InvalidEndpoint(_) | Error::InvalidUrl(_) => http::StatusCode::BAD_REQUEST,
-            Error::LoadEndpoint(_) | Error::SendWorker(_) | Error::Database(_) => {
+            Error::InvalidEndpoint { .. } | Error::InvalidUrl { .. } => http::StatusCode::BAD_REQUEST,
+            Error::LoadEndpoint { .. } | Error::SendWorker { .. } | Error::Database { .. } => {
                 http::StatusCode::INTERNAL_SERVER_ERROR
             }
         }
