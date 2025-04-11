@@ -133,7 +133,7 @@ pub struct Profile {
     pub arch: String,
     #[serde(with = "http_serde::uri")]
     pub index_uri: Uri,
-    #[serde(rename = "remote")]
+    #[serde(default, rename = "remote")]
     pub remotes: Vec<Remote>,
 }
 
