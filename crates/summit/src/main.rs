@@ -63,8 +63,10 @@ async fn main() -> Result<()> {
         .merge(
             axum::Router::new()
                 .route("/", get(routes::index))
+                .route("/tasks", get(routes::tasks))
                 .nest_service("/static", serve_static)
-                .fallback(get(routes::fallback)),
+                .fallback(get(routes::fallback))
+                .with_state(state.clone()),
         )
         .merge_api(api::service(state.clone(), worker_sender.clone()))
         .with_task("worker", worker_task)
