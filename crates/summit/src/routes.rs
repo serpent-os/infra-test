@@ -5,7 +5,7 @@ use axum::{
 use color_eyre::eyre::{self, Context};
 use http::StatusCode;
 use serde::Deserialize;
-use thiserror::Error;
+use snafu::Snafu;
 
 use crate::{project, task};
 
@@ -46,9 +46,11 @@ pub async fn fallback() -> Html<&'static str> {
     Html(include_str!("../templates/404.html"))
 }
 
-#[derive(Debug, Error)]
-#[error(transparent)]
-pub struct Error(#[from] eyre::Report);
+#[derive(Debug, Snafu)]
+#[snafu(transparent)]
+pub struct Error {
+    source: eyre::Report,
+}
 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {

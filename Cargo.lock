@@ -333,7 +333,7 @@ dependencies = [
  "itertools",
  "service",
  "sha2",
- "thiserror 2.0.12",
+ "snafu",
  "tokio",
  "tracing",
  "uuid",
@@ -3150,7 +3150,6 @@ dependencies = [
  "http-serde",
  "serde",
  "strum",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -3252,6 +3251,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "snafu"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "223891c85e2a29c3fe8fb900c1fae5e69c2e42415e3177752e8718475efa5019"
+dependencies = [
+ "snafu-derive",
+]
+
+[[package]]
+name = "snafu-derive"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03c3c6b7927ffe7ecaa769ee0e3994da3b8cafc8f444578982c83ecb161af917"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -3595,11 +3615,11 @@ dependencies = [
  "serde",
  "service",
  "sha2",
+ "snafu",
  "sqlx",
  "stone",
  "stone_recipe",
  "strum",
- "thiserror 2.0.12",
  "tokio",
  "toml",
  "tower-http",
@@ -4233,10 +4253,10 @@ dependencies = [
  "moss",
  "service",
  "sha2",
+ "snafu",
  "sqlx",
  "stone",
  "strum",
- "thiserror 2.0.12",
  "tokio",
  "tracing",
  "url",

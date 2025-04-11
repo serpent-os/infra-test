@@ -1,6 +1,7 @@
 //! Defines the role a service plays in the infrastructure
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 /// Service role
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumString, Serialize, Deserialize)]
@@ -47,6 +48,13 @@ impl TryFrom<u8> for Role {
 }
 
 /// Unknown [`Role`] from [`u8`]
-#[derive(Debug, Error)]
-#[error("Unkown role: {0}")]
+#[derive(Debug)]
 pub struct UnknownRole(u8);
+
+impl fmt::Display for UnknownRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Unknown role: {}", self.0)
+    }
+}
+
+impl std::error::Error for UnknownRole {}

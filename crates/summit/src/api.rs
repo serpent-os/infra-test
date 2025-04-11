@@ -1,6 +1,6 @@
 use service::{Endpoint, State, api, database, endpoint};
-use thiserror::Error;
-use tracing::{error, info, warn};
+use snafu::{ResultExt, Snafu};
+use tracing::{info, warn};
 
 use crate::worker;
 
@@ -36,10 +36,19 @@ async fn build_succeeded(
         .payload
         .sub
         .parse::<endpoint::Id>()
-        .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(context.state.service_db.acquire().await?.as_mut(), endpoint_id)
-        .await
-        .map_err(Error::LoadEndpoint)?;
+        .context(InvalidEndpointSnafu)?;
+    let endpoint = Endpoint::get(
+        context
+            .state
+            .service_db
+            .acquire()
+            .await
+            .context(DatabaseSnafu)?
+            .as_mut(),
+        endpoint_id,
+    )
+    .await
+    .context(LoadEndpointSnafu)?;
 
     info!(
         endpoint = %endpoint.id,
@@ -71,10 +80,19 @@ async fn build_failed(request: api::Request<api::v1::summit::BuildFailed>, conte
         .payload
         .sub
         .parse::<endpoint::Id>()
-        .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(context.state.service_db.acquire().await?.as_mut(), endpoint_id)
-        .await
-        .map_err(Error::LoadEndpoint)?;
+        .context(InvalidEndpointSnafu)?;
+    let endpoint = Endpoint::get(
+        context
+            .state
+            .service_db
+            .acquire()
+            .await
+            .context(DatabaseSnafu)?
+            .as_mut(),
+        endpoint_id,
+    )
+    .await
+    .context(LoadEndpointSnafu)?;
 
     warn!(
         endpoint = %endpoint.id,
@@ -109,10 +127,19 @@ async fn import_succeeded(
         .payload
         .sub
         .parse::<endpoint::Id>()
-        .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(context.state.service_db.acquire().await?.as_mut(), endpoint_id)
-        .await
-        .map_err(Error::LoadEndpoint)?;
+        .context(InvalidEndpointSnafu)?;
+    let endpoint = Endpoint::get(
+        context
+            .state
+            .service_db
+            .acquire()
+            .await
+            .context(DatabaseSnafu)?
+            .as_mut(),
+        endpoint_id,
+    )
+    .await
+    .context(LoadEndpointSnafu)?;
 
     info!(
         endpoint = %endpoint.id,
@@ -140,10 +167,19 @@ async fn import_failed(request: api::Request<api::v1::summit::ImportFailed>, con
         .payload
         .sub
         .parse::<endpoint::Id>()
-        .map_err(Error::InvalidEndpoint)?;
-    let endpoint = Endpoint::get(context.state.service_db.acquire().await?.as_mut(), endpoint_id)
-        .await
-        .map_err(Error::LoadEndpoint)?;
+        .context(InvalidEndpointSnafu)?;
+    let endpoint = Endpoint::get(
+        context
+            .state
+            .service_db
+            .acquire()
+            .await
+            .context(DatabaseSnafu)?
+            .as_mut(),
+        endpoint_id,
+    )
+    .await
+    .context(LoadEndpointSnafu)?;
 
     warn!(
         endpoint = %endpoint.id,
@@ -157,34 +193,34 @@ async fn import_failed(request: api::Request<api::v1::summit::ImportFailed>, con
     Ok(())
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Snafu)]
 pub enum Error {
     /// Required token is missing from the request
-    #[error("Token missing from request")]
+    #[snafu(display("Token missing from request"))]
     MissingRequestToken,
     /// Remotes missing from request
-    #[error("Missing remotes")]
+    #[snafu(display("Missing remotes"))]
     MissingRemotes,
     /// Another build is already in progress
-    #[error("Another build is already in progress")]
+    #[snafu(display("Another build is already in progress"))]
     BuildInProgress,
     /// Endpoint (UUIDv4) cannot be parsed from string
-    #[error("invalid endpoint")]
-    InvalidEndpoint(#[source] uuid::Error),
+    #[snafu(display("Invalid endpoint"))]
+    InvalidEndpoint { source: uuid::Error },
     /// Failed to load endpoint from DB
-    #[error("load endpoint")]
-    LoadEndpoint(#[source] database::Error),
+    #[snafu(display("Failed to load endpoint"))]
+    LoadEndpoint { source: database::Error },
     /// Database error
-    #[error("database")]
-    Database(#[from] database::Error),
+    #[snafu(display("Database error"))]
+    Database { source: database::Error },
 }
 
 impl From<&Error> for http::StatusCode {
     fn from(error: &Error) -> Self {
         match error {
             Error::MissingRequestToken => http::StatusCode::UNAUTHORIZED,
-            Error::MissingRemotes | Error::InvalidEndpoint(_) => http::StatusCode::BAD_REQUEST,
-            Error::LoadEndpoint(_) | Error::Database(_) => http::StatusCode::INTERNAL_SERVER_ERROR,
+            Error::MissingRemotes | Error::InvalidEndpoint { .. } => http::StatusCode::BAD_REQUEST,
+            Error::LoadEndpoint { .. } | Error::Database { .. } => http::StatusCode::INTERNAL_SERVER_ERROR,
             Error::BuildInProgress => http::StatusCode::SERVICE_UNAVAILABLE,
         }
     }
