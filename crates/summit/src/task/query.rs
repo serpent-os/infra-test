@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
 use itertools::Itertools;
-use moss::package;
 use sqlx::{SqliteConnection, prelude::FromRow};
 
 use crate::{profile, project, repository};
@@ -55,8 +54,7 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
         #[sqlx(try_from = "i64")]
         repository_id: repository::Id,
         slug: String,
-        #[sqlx(try_from = "String")]
-        package_id: package::Id,
+        package_id: String,
         arch: String,
         build_id: String,
         description: String,

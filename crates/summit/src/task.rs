@@ -4,11 +4,7 @@ use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
 use derive_more::derive::{Display, From, Into};
 use http::Uri;
-use moss::{
-    db::meta,
-    dependency,
-    package::{self, Meta},
-};
+use moss::{db::meta, dependency, package::Meta};
 use serde::{Deserialize, Serialize};
 use service::database::Transaction;
 use sqlx::{SqliteConnection, prelude::FromRow};
@@ -29,14 +25,14 @@ pub mod query;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Task {
     pub id: Id,
     pub project_id: project::Id,
     pub profile_id: profile::Id,
     pub repository_id: repository::Id,
     pub slug: String,
-    pub package_id: package::Id,
+    pub package_id: String,
     pub arch: String,
     pub build_id: String,
     pub description: String,
@@ -51,7 +47,8 @@ pub struct Task {
     pub ended: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, strum::Display, strum::EnumString, strum::EnumIter)]
+#[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum Status {
     /// Freshly created task

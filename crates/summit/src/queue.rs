@@ -45,7 +45,7 @@ impl Queue {
                     .ok_or_eyre("task has missing repo")?;
                 let db = repo_dbs.get(&repo.id).ok_or_eyre("repo has missing meta db")?.clone();
 
-                let package_id = task.package_id.clone();
+                let package_id = task.package_id.clone().into();
 
                 let meta = spawn_blocking(move || db.get(&package_id))
                     .await
