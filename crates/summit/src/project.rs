@@ -9,7 +9,7 @@ use crate::{Profile, Repository, profile, repository};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Project {
     pub id: Id,
     pub name: String,

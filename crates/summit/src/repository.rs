@@ -14,20 +14,22 @@ mod reindex;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Repository {
     pub id: Id,
     pub name: String,
     pub summary: String,
     pub description: Option<String>,
     pub commit_ref: Option<String>,
+    #[serde(with = "http_serde::uri")]
     pub origin_uri: Uri,
     pub branch: Option<String>,
     pub status: Status,
 }
 
 /// Status of the repository
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, strum::Display, strum::EnumString)]
+#[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum Status {
     /// Never cloned before

@@ -7,7 +7,7 @@ use http::StatusCode;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::task;
+use crate::{project, task};
 
 pub async fn index() -> Html<&'static str> {
     Html(include_str!("../templates/index.html"))
@@ -31,6 +31,7 @@ pub async fn tasks(
     let limit = query.per_page.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     let offset = query.page.unwrap_or(0) as i64 * limit as i64;
 
+    let _projects = project::list(&mut conn).await.context("list projects")?;
     let _tasks = task::query(&mut conn, task::query::Params::default().offset(offset).limit(limit))
         .await
         .context("query tasks")?;

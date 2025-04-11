@@ -14,11 +14,12 @@ pub mod remote;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, From, Into, Display, FromRow)]
 pub struct Id(i64);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Profile {
     pub id: Id,
     pub name: String,
     pub arch: String,
+    #[serde(with = "http_serde::uri")]
     pub index_uri: Uri,
     pub remotes: Vec<Remote>,
 }
