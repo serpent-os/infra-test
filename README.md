@@ -12,7 +12,7 @@ AerynOS service infrastructure
 ```sh
 # on AerynOS
 sudo moss sync -u
-sudo moss it docker just -y
+sudo moss it docker-compose just -y
 sudo usermod -a -G docker "${USER}"
 sudo systemctl enable --now docker.socket
 sudo systemctl reboot 
