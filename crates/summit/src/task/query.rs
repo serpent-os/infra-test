@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context, Result};
 use itertools::Itertools;
-use sqlx::{SqliteConnection, prelude::FromRow};
+use sqlx::{Sqlite, SqliteConnection, prelude::FromRow, query::QueryAs, sqlite::SqliteArguments};
 
 use crate::{profile, project, repository};
 
@@ -40,9 +40,72 @@ impl Params {
             ..self
         }
     }
+
+    fn where_clause(&self) -> String {
+        if self.id.is_some() || self.statuses.is_some() {
+            let conditions = self
+                .id
+                .map(|_| "task_id = ?".to_string())
+                .into_iter()
+                .chain(self.statuses.as_ref().map(|statuses| {
+                    let binds = ",?".repeat(statuses.len()).chars().skip(1).collect::<String>();
+
+                    format!("status IN ({binds})")
+                }))
+                .join(" AND ");
+
+            format!("WHERE {conditions}")
+        } else {
+            String::default()
+        }
+    }
+
+    fn limit_offset_clause(&self) -> &'static str {
+        match (self.limit, self.offset) {
+            (None, None) => "",
+            (None, Some(_)) => "OFFSET ?",
+            (Some(_), None) => "LIMIT ?",
+            (Some(_), Some(_)) => "LIMIT ?\nOFFSET ?",
+        }
+    }
+
+    fn bind_where<'a, O>(
+        &self,
+        mut query: QueryAs<'a, Sqlite, O, SqliteArguments<'a>>,
+    ) -> QueryAs<'a, Sqlite, O, SqliteArguments<'a>> {
+        if let Some(id) = self.id {
+            query = query.bind(i64::from(id));
+        }
+        if let Some(statuses) = self.statuses.as_ref() {
+            for status in statuses {
+                query = query.bind(status.to_string());
+            }
+        }
+        query
+    }
+
+    fn bind_limit_offset<'a, O>(
+        &self,
+        mut query: QueryAs<'a, Sqlite, O, SqliteArguments<'a>>,
+    ) -> QueryAs<'a, Sqlite, O, SqliteArguments<'a>> {
+        if let Some(limit) = self.limit {
+            query = query.bind(limit);
+        }
+        if let Some(offset) = self.offset {
+            query = query.bind(offset);
+        }
+        query
+    }
 }
 
-pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Task>> {
+#[derive(Debug)]
+pub struct Query {
+    pub tasks: Vec<Task>,
+    pub count: usize,
+    pub total: usize,
+}
+
+pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Query> {
     #[derive(FromRow)]
     struct Row {
         #[sqlx(rename = "task_id", try_from = "i64")]
@@ -69,25 +132,8 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
         ended: Option<DateTime<Utc>>,
     }
 
-    let mut where_clause = String::default();
-
-    if params.id.is_some() || params.statuses.is_some() {
-        let conditions = params
-            .id
-            .map(|_| "task_id = ?".to_string())
-            .into_iter()
-            .chain(params.statuses.as_ref().map(|statuses| {
-                let binds = ",?".repeat(statuses.len()).chars().skip(1).collect::<String>();
-
-                format!("status IN ({binds})")
-            }))
-            .join(" AND ");
-
-        where_clause = format!("WHERE {conditions}");
-    };
-
-    let limit_clause = params.limit.map(|_| "LIMIT ?").unwrap_or_default();
-    let offset_clause = params.offset.map(|_| "OFFSET ?").unwrap_or_default();
+    let where_clause = params.where_clause();
+    let limit_offset_clause = params.limit_offset_clause();
 
     let query_str = format!(
         "
@@ -112,29 +158,28 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
         FROM task
         {where_clause}
         ORDER BY started, task_id DESC
-        {limit_clause}
-        {offset_clause};
+        {limit_offset_clause}
         ",
     );
 
     let mut query = sqlx::query_as::<_, Row>(&query_str);
-
-    if let Some(id) = params.id {
-        query = query.bind(i64::from(id));
-    }
-    if let Some(statuses) = params.statuses {
-        for status in statuses {
-            query = query.bind(status.to_string());
-        }
-    }
-    if let Some(limit) = params.limit {
-        query = query.bind(limit);
-    }
-    if let Some(offset) = params.offset {
-        query = query.bind(offset);
-    }
+    query = params.bind_where(query);
+    query = params.bind_limit_offset(query);
 
     let rows = query.fetch_all(&mut *conn).await.context("fetch tasks")?;
+
+    let query_str = format!(
+        "
+        SELECT COUNT(*)
+        FROM task
+        {where_clause}
+        "
+    );
+
+    let (total,) = sqlx::query_as::<_, (i64,)>(&query_str)
+        .fetch_one(&mut *conn)
+        .await
+        .context("fetch tasks count")?;
 
     let mut tasks = rows
         .into_iter()
@@ -190,5 +235,9 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
         }
     }
 
-    Ok(tasks)
+    Ok(Query {
+        count: tasks.len(),
+        tasks,
+        total: total as usize,
+    })
 }

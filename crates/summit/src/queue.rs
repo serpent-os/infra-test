@@ -25,7 +25,8 @@ impl Queue {
     ) -> Result<()> {
         let open_tasks = task::query(conn, task::query::Params::default().statuses(task::Status::open()))
             .await
-            .context("list open tasks")?;
+            .context("list open tasks")?
+            .tasks;
 
         let mapped_tasks = stream::iter(open_tasks)
             .then(|task| async {

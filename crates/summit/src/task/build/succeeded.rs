@@ -33,6 +33,7 @@ pub async fn succeeded(
     let task = task::query(tx.as_mut(), task::query::Params::default().id(task_id))
         .await
         .context("get task")?
+        .tasks
         .into_iter()
         .next()
         .ok_or_eyre("task is missing")?;

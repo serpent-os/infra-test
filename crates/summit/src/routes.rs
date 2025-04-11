@@ -32,9 +32,11 @@ pub async fn tasks(
     let offset = query.page.unwrap_or(0) as i64 * limit as i64;
 
     let _projects = project::list(&mut conn).await.context("list projects")?;
-    let _tasks = task::query(&mut conn, task::query::Params::default().offset(offset).limit(limit))
+    let query = task::query(&mut conn, task::query::Params::default().offset(offset).limit(limit))
         .await
         .context("query tasks")?;
+
+    dbg!((query.count, query.total));
 
     // TODO: Render template
     Ok(Html(include_str!("../templates/index.html")))

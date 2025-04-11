@@ -227,6 +227,7 @@ impl Manager {
         let task = task::query(tx.as_mut(), task::query::Params::default().id(task_id))
             .await
             .context("query task")?
+            .tasks
             .into_iter()
             .next()
             .ok_or_eyre("task is missing")?;
