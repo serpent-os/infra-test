@@ -1,9 +1,10 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     response::{Html, IntoResponse, Response},
 };
 use color_eyre::eyre::{self, Context};
 use http::StatusCode;
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::task;
@@ -12,12 +13,26 @@ pub async fn index() -> Html<&'static str> {
     Html(include_str!("../templates/index.html"))
 }
 
-pub async fn tasks(State(state): State<service::State>) -> Result<Html<&'static str>, Error> {
-    // TODO: Serialize tasks
+#[derive(Debug, Deserialize)]
+pub struct TasksQuery {
+    pub page: Option<u32>,
+    pub per_page: Option<u32>,
+}
+
+pub async fn tasks(
+    State(state): State<service::State>,
+    Query(query): Query<TasksQuery>,
+) -> Result<Html<&'static str>, Error> {
+    const DEFAULT_LIMIT: u32 = 25;
+    const MAX_LIMIT: u32 = 100;
+
     let mut conn = state.service_db.acquire().await.context("acquire db conn")?;
 
-    // TODO: Add pagination & sorting to query params
-    let _tasks = task::query(&mut conn, task::query::Params::default())
+    let limit = query.per_page.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    let offset = query.page.unwrap_or(0) as i64 * limit as i64;
+
+    // TODO: Serialize tasks
+    let _tasks = task::query(&mut conn, task::query::Params::default().offset(offset).limit(limit))
         .await
         .context("query tasks")?;
 

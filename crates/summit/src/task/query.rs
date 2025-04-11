@@ -12,6 +12,8 @@ use super::{Id, Status, Task};
 pub struct Params {
     id: Option<Id>,
     statuses: Option<Vec<Status>>,
+    offset: Option<i64>,
+    limit: Option<u32>,
 }
 
 impl Params {
@@ -22,6 +24,20 @@ impl Params {
     pub fn statuses(self, statuses: impl IntoIterator<Item = Status>) -> Self {
         Self {
             statuses: Some(statuses.into_iter().collect()),
+            ..self
+        }
+    }
+
+    pub fn offset(self, offset: i64) -> Self {
+        Self {
+            offset: Some(offset),
+            ..self
+        }
+    }
+
+    pub fn limit(self, limit: u32) -> Self {
+        Self {
+            limit: Some(limit),
             ..self
         }
     }
@@ -72,6 +88,9 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
         where_clause = format!("WHERE {conditions}");
     };
 
+    let limit_clause = params.limit.map(|_| "LIMIT ?").unwrap_or_default();
+    let offset_clause = params.offset.map(|_| "OFFSET ?").unwrap_or_default();
+
     let query_str = format!(
         "
         SELECT
@@ -93,7 +112,10 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
           updated,
           ended
         FROM task
-        {where_clause};
+        {where_clause}
+        ORDER BY started, task_id DESC
+        {limit_clause}
+        {offset_clause};
         ",
     );
 
@@ -102,11 +124,16 @@ pub async fn query(conn: &mut SqliteConnection, params: Params) -> Result<Vec<Ta
     if let Some(id) = params.id {
         query = query.bind(i64::from(id));
     }
-
     if let Some(statuses) = params.statuses {
         for status in statuses {
             query = query.bind(status.to_string());
         }
+    }
+    if let Some(limit) = params.limit {
+        query = query.bind(limit);
+    }
+    if let Some(offset) = params.offset {
+        query = query.bind(offset);
     }
 
     let rows = query.fetch_all(&mut *conn).await.context("fetch tasks")?;
