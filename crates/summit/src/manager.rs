@@ -5,7 +5,7 @@ use moss::db::meta;
 use service::{Collectable, Endpoint, State, database::Transaction, endpoint};
 use sqlx::{Sqlite, pool::PoolConnection};
 use tokio::task::spawn_blocking;
-use tracing::{Span, info, warn};
+use tracing::{Span, error, info, warn};
 
 use crate::{Project, Queue, profile, project, repository, task};
 
@@ -68,9 +68,9 @@ impl Manager {
             for profile in &project.profiles {
                 let db = manager.profile_db(&profile.id).cloned()?;
 
-                profile::refresh(&manager.state, profile, db)
+                let _ = profile::refresh(&manager.state, profile, db)
                     .await
-                    .context("refresh profile")?;
+                    .inspect_err(|error| error!(profile = %profile.id, %error, "Failed to refresh profile"));
             }
 
             // Add all missing tasks

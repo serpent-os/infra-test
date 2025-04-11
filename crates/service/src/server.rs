@@ -1,18 +1,17 @@
 //! Batteries included server that provides common service APIs
 //! over http, with the ability to handle additional consumer
 //! defined APIs
-use std::{future::IntoFuture, io, path::Path, time::Duration};
+use std::{future::IntoFuture, io, net::IpAddr, path::Path, time::Duration};
 
 use thiserror::Error;
-use tokio::net::ToSocketAddrs;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{Config, Role, State, account, api, endpoint::enrollment, error, middleware, signal, task, token};
 
 pub use crate::task::CancellationToken;
 
 /// Start the [`Server`] without additional configuration
-pub async fn start(addr: impl ToSocketAddrs, role: Role, config: &Config, state: &State) -> Result<(), Error> {
+pub async fn start(addr: (IpAddr, u16), role: Role, config: &Config, state: &State) -> Result<(), Error> {
     Server::new(role, config, state).start(addr).await
 }
 
@@ -113,6 +112,20 @@ impl Server<'_> {
         }
     }
 
+    /// Serve static files from the provided `directory` as fallback
+    pub fn serve_fallback_directory(self, directory: impl AsRef<Path>) -> Self {
+        Self {
+            router: self.router.fallback_service(
+                tower_http::services::ServeDir::new(directory.as_ref())
+                    .precompressed_gzip()
+                    .fallback(tower_http::services::ServeFile::new(
+                        directory.as_ref().join("404.html"),
+                    )),
+            ),
+            ..self
+        }
+    }
+
     /// Start the server and perform the following:
     ///
     /// - Sync the defined [`Config::admin`] to the service [`Database`] to ensure
@@ -122,7 +135,7 @@ impl Server<'_> {
     ///   and any additional API routes added via [`Server::merge_api`].
     ///
     /// [`Database`]: crate::Database
-    pub async fn start(self, addr: impl ToSocketAddrs) -> Result<(), Error> {
+    pub async fn start(self, addr: (IpAddr, u16)) -> Result<(), Error> {
         account::sync_admin(&self.state.service_db, self.config.admin.clone()).await?;
 
         if self.role == Role::Hub {
@@ -141,7 +154,13 @@ impl Server<'_> {
         let router = self.router.layer(self.extract_token).layer(middleware::Log);
 
         self.runner
-            .with_task("http server", axum::serve(listener, router))
+            .with_task("http server", async move {
+                let (host, port) = addr;
+
+                info!("listening on {host}:{port}");
+
+                axum::serve(listener, router).await
+            })
             .with_task("signal capture", signal::capture(self.signals))
             .run()
             .await;

@@ -26,6 +26,7 @@ FROM alpine:3.20 AS summit
 WORKDIR /app
 RUN apk add --no-cache sudo git
 COPY --from=rust-builder /summit .
+COPY ./crates/summit/public /app/public
 VOLUME /app/state
 VOLUME /app/config.toml
 VOLUME /app/seed.toml

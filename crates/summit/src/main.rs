@@ -1,9 +1,9 @@
+use std::path::Path;
 use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
 use color_eyre::eyre::Context;
 use service::{Role, Server, State};
-use tracing::info;
 
 pub use self::manager::Manager;
 pub use self::profile::Profile;
@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
         config,
         root,
         seed_from,
+        public,
     } = Args::parse();
 
     let config = Config::load(config.unwrap_or_else(|| root.join("config.toml"))).await?;
@@ -53,10 +54,9 @@ async fn main() -> Result<()> {
 
     let (worker_sender, worker_task) = worker::run(manager).await?;
 
-    info!("summit listening on {host}:{port}");
-
     Server::new(Role::Hub, &config, &state)
         .merge_api(api::service(state.clone(), worker_sender.clone()))
+        .serve_fallback_directory(public.as_deref().unwrap_or(Path::new("public")))
         .with_task("worker", worker_task)
         .start((host, port))
         .await?;
@@ -76,4 +76,6 @@ struct Args {
     root: PathBuf,
     #[arg(long = "seed")]
     seed_from: Option<PathBuf>,
+    #[arg(long)]
+    public: Option<PathBuf>,
 }

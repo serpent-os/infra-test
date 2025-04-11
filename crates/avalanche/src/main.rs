@@ -2,7 +2,6 @@ use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
 use service::{Role, Server, State};
-use tracing::info;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
@@ -26,8 +25,6 @@ async fn main() -> Result<()> {
     service::tracing::init(&config.tracing);
 
     let state = State::load(root).await?;
-
-    info!("avalanche listening on {host}:{port}");
 
     Server::new(Role::Builder, &config, &state)
         .merge_api(api::service(state.clone(), config.clone()))

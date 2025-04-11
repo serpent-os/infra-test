@@ -2,7 +2,6 @@ use std::{net::IpAddr, path::PathBuf};
 
 use clap::Parser;
 use service::{Role, Server, State};
-use tracing::info;
 
 pub type Result<T, E = color_eyre::eyre::Error> = std::result::Result<T, E>;
 pub type Config = service::Config;
@@ -35,8 +34,6 @@ async fn main() -> Result<()> {
     if let Some(directory) = import {
         let _ = worker_sender.send(worker::Message::ImportDirectory(directory));
     }
-
-    info!("vessel listening on {host}:{port}");
 
     Server::new(Role::RepositoryManager, &config, &state)
         .merge_api(api::service(state.service_db.clone(), worker_sender))
