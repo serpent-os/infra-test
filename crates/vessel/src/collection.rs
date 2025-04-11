@@ -3,7 +3,7 @@ use sqlx::FromRow;
 use thiserror::Error;
 
 #[derive(Debug, Clone, FromRow)]
-pub struct Record {
+pub struct Entry {
     pub name: String,
     pub source_id: String,
     pub package_id: String,
@@ -11,7 +11,7 @@ pub struct Record {
     pub source_release: i64,
 }
 
-impl Record {
+impl Entry {
     pub fn new(id: moss::package::Id, meta: moss::package::Meta) -> Self {
         Self {
             name: meta.name.to_string(),
@@ -23,7 +23,7 @@ impl Record {
     }
 }
 
-pub async fn lookup<'a, T>(conn: &'a mut T, name: &str) -> Result<Option<Record>, Error>
+pub async fn lookup<'a, T>(conn: &'a mut T, name: &str) -> Result<Option<Entry>, Error>
 where
     &'a mut T: database::Executor<'a>,
 {
@@ -46,7 +46,7 @@ where
     .await?)
 }
 
-pub async fn list<'a, T>(conn: &'a mut T) -> Result<Vec<Record>, Error>
+pub async fn list<'a, T>(conn: &'a mut T) -> Result<Vec<Entry>, Error>
 where
     &'a mut T: database::Executor<'a>,
 {
@@ -66,7 +66,7 @@ where
     .await?)
 }
 
-pub async fn record(tx: &mut Transaction, record: Record) -> Result<(), Error> {
+pub async fn record(tx: &mut Transaction, entry: Entry) -> Result<(), Error> {
     sqlx::query(
         "
         INSERT INTO collection
@@ -85,11 +85,11 @@ pub async fn record(tx: &mut Transaction, record: Record) -> Result<(), Error> {
           source_release=excluded.source_release;
         ",
     )
-    .bind(record.name)
-    .bind(record.source_id)
-    .bind(record.package_id)
-    .bind(record.build_release)
-    .bind(record.source_release)
+    .bind(entry.name)
+    .bind(entry.source_id)
+    .bind(entry.package_id)
+    .bind(entry.build_release)
+    .bind(entry.source_release)
     .execute(tx.as_mut())
     .await?;
 

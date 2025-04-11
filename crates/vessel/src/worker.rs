@@ -248,7 +248,7 @@ fn import_package(
 
     let existing = tokio::runtime::Handle::current()
         .block_on(collection::lookup(tx.as_mut(), name.as_ref()))
-        .context("lookup existing collection record")?;
+        .context("lookup existing collection entry")?;
 
     match existing {
         Some(e) if e.source_release as u64 > meta.source_release => {
@@ -280,9 +280,8 @@ fn import_package(
     // Will only be added once TX is committed / all packages
     // are succsefully handled
     tokio::runtime::Handle::current()
-        .block_on(collection::record(tx, collection::Record::new(id, meta)))
-        // English why you be like this
-        .context("record collection record")?;
+        .block_on(collection::record(tx, collection::Entry::new(id, meta)))
+        .context("record collection entry")?;
 
     info!(file_name = file_name.to_str(), source_id, "Package imported");
 
@@ -344,7 +343,7 @@ fn hardlink_or_copy(from: &Path, to: &Path) -> Result<()> {
 }
 
 async fn reindex(state: &State) -> Result<()> {
-    let mut records = collection::list(
+    let mut entries = collection::list(
         state
             .service_db
             .acquire()
@@ -353,8 +352,8 @@ async fn reindex(state: &State) -> Result<()> {
             .as_mut(),
     )
     .await
-    .context("list records from collection db")?;
-    records.sort_by(|a, b| a.source_id.cmp(&b.source_id).then_with(|| a.name.cmp(&b.name)));
+    .context("list entries from collection db")?;
+    entries.sort_by(|a, b| a.source_id.cmp(&b.source_id).then_with(|| a.name.cmp(&b.name)));
 
     let now = Instant::now();
 
@@ -381,10 +380,10 @@ async fn reindex(state: &State) -> Result<()> {
                 let mut writer = stone::Writer::new(&mut file, stone::header::v1::FileType::Repository)
                     .context("create stone writer")?;
 
-                for record in records {
+                for entry in entries {
                     let mut meta = state
                         .meta_db
-                        .get(&record.package_id.clone().into())
+                        .get(&entry.package_id.clone().into())
                         .context("get package from meta db")?;
 
                     // TODO: Replace hardcoded relative path
@@ -392,7 +391,7 @@ async fn reindex(state: &State) -> Result<()> {
                     meta.uri = Some(format!(
                         "../../{}",
                         meta.uri
-                            .ok_or(eyre!("Package {} is missing URI in metadata", &record.package_id))?,
+                            .ok_or(eyre!("Package {} is missing URI in metadata", &entry.package_id))?,
                     ));
 
                     writer
