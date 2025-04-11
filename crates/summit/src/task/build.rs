@@ -92,6 +92,10 @@ async fn stash_log(state: &State, task_id: Id, collectables: &[Collectable]) -> 
 
     let parent = state.state_dir.join("logs").join(task_id.to_string());
     let path = parent.join(name);
+    let relative_path = path
+        .strip_prefix(&state.state_dir)
+        .expect("descendent of state dir")
+        .to_owned();
 
     let _ = fs::create_dir_all(&parent).await;
 
@@ -109,5 +113,5 @@ async fn stash_log(state: &State, task_id: Id, collectables: &[Collectable]) -> 
 
     file.flush().await.context("flush")?;
 
-    Ok(Some(path))
+    Ok(Some(relative_path))
 }
