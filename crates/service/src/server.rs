@@ -112,20 +112,6 @@ impl Server<'_> {
         }
     }
 
-    /// Serve static files from the provided `directory` as fallback
-    pub fn serve_fallback_directory(self, directory: impl AsRef<Path>) -> Self {
-        Self {
-            router: self.router.fallback_service(
-                tower_http::services::ServeDir::new(directory.as_ref())
-                    .precompressed_gzip()
-                    .fallback(tower_http::services::ServeFile::new(
-                        directory.as_ref().join("404.html"),
-                    )),
-            ),
-            ..self
-        }
-    }
-
     /// Start the server and perform the following:
     ///
     /// - Sync the defined [`Config::admin`] to the service [`Database`] to ensure
